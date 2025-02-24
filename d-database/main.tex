@@ -182,7 +182,7 @@ CALL
 
 Сложность: Требует объединения таблиц подписок, постов, контента и пользователей, 
 а также логики для фильтрации просмотренного контента.
-\begin{lstlisting}[caption={recomend}, label={lst:example}]
+\begin{lstlisting}[caption={recommend}, label={lst:example}]
     EXPLAIN ANALYZE
     WITH user_likes AS (
         SELECT DISTINCT c.media_type
@@ -252,8 +252,58 @@ CALL
     Execution Time: 16.065 ms
 \end{lstlisting}
 
+\section{MongoDB}
+
+Задача: Найти 10 самых популярных элементов контента (фото, видео, текст, стикеры) за последний месяц, 
+основываясь на общем количестве лайков постов, в которых они использовались. 
+Также, для каждого элемента контента, вернуть имена и email создателей этих постов.
+\begin{lstlisting}[caption={analyze without indexes}, label={lst:example}]
+    Query 1 (Top 10 popular): 0s 53.351318ms
+\end{lstlisting}
+\begin{lstlisting}[caption={analyze with indexes}, label={lst:example}]
+    
+\end{lstlisting}
+
+Задача: Для заданного пользователя (например, с user\_id = 123), найти 5 наиболее подходящих элементов контента,
+которые он еще не видел, основываясь на следующих критериях:
+У контента есть лайки.
+Контент от пользователей, на которых он подписан.
+В данном случае, будем считать, что "похожий" контент - это контент того же media\_type.
+\begin{lstlisting}[caption={analyze without indexes}, label={lst:example}]
+    Query 2 (Recommendations): 0s 261.533013ms
+\end{lstlisting}
+\begin{lstlisting}[caption={analyze with indexes}, label={lst:example}]
+    
+\end{lstlisting}
+
+Задача: Найти всех пользователей, которые подписаны друг на друга (A подписан на B, и B подписан на A).
+\begin{lstlisting}[caption={analyze without indexes}, label={lst:example}]
+    Query 3 (Mutual subs): 3s 69.803046ms\end{lstlisting}
+\begin{lstlisting}[caption={analyze with indexes}, label={lst:example}]
+    
+\end{lstlisting}
+
+
 
 \end{document}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 \includegraphics[width=.9\textwidth]{123}
 
 \begin{lstlisting}[caption={kitty}, label={lst:example}]
