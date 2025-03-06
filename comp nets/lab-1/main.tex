@@ -79,6 +79,111 @@
 
 
 \section{Этап первый}
+Были добавлены 2 компьютера и по одной сетевый карте каждому.
+Сетевые карты настроены на первую сеть.
+\\
+Так же была перекличка ARP реквестами (чтобы определить MAC адреса устройств в сети, изначально отправляется ARP на широковещательный адрес). 
+После чего произошёл обмен UDP-сообщением на транспорном уровне, так как МАС адреса уже известны.
+В самих UDP можно увидеть пакет с адресом отправителя, получателя и их порты.
+\begin{center}
+    \includegraphics[width=.9\textwidth]{1}
+\end{center}
+
+В таблицах маршрутизации соответсвенно можно увидеть подключения сетевой карты: обозначено место назначения, маска, шлюз (через который пройдёт сообщение), интерфейс, метрика, тип источника.
+
+\begin{center}
+    \includegraphics[width=.9\textwidth]{2}
+\end{center}
+
+В ARP таблице можно увидеть соответствие IP адреса к MAC в нашей сети.
+\\
+\begin{minipage}{.5\textwidth}    
+    \begin{center}
+        \includegraphics[width=.9\textwidth]{3}
+    \end{center}
+\end{minipage}
+\hfil
+\begin{minipage}{.5\textwidth}    
+    \begin{center}
+        \includegraphics[width=.9\textwidth]{4}
+    \end{center}
+\end{minipage}
+Тут содержатся следующие данные о подключении: физический адрес утройства, с которым произошло подключение; сетевой адрес этого устройства; тип записи (динамически, так как запись была добавлена автоматически); интерфейс, через который была получена информация; время жизни, в течении которого будет храниться запись в таблице, если не будет обновлена.
+
+\section{Линейная компьютерная сеть}
+\begin{center}
+    \includegraphics[width=.9\textwidth]{5}
+\end{center}
+Была добавлена ещё одна сеть и ПК3. У ПК1 включён раутинг и добавлена ещё один интерфейс для подключения к новой сети.
+
+\begin{center}
+    \includegraphics[width=.9\textwidth]{6}
+\end{center}
+Протестирована отправка пакета с крайнего ПК до другого крайнего. Изначально прошли ARP для определения устройств в каждой подсети.
+
+\begin{center}
+    \includegraphics[width=.9\textwidth]{7}
+\end{center}
+В таблице маршрутизации у первого ПК появились записи, которые описывают подключения в обоих подсетях. 
+Для корректной работы крайних компьютеров, определены статические пути, который показывают, как попасть в отличную нашей сеть. 
+
+\begin{minipage}{.5\textwidth}    
+    \begin{center}
+        \includegraphics[width=.9\textwidth]{9}
+    \end{center}
+\end{minipage}
+\hfill
+\begin{minipage}{.5\textwidth}
+    \begin{center}
+        \includegraphics[width=.9\textwidth]{10}
+    \end{center}
+\end{minipage}
+\begin{center}
+    \includegraphics[width=.9\textwidth]{11}
+\end{center}
+
+\section{Полносвязная сеть}
+Для построения полнослязной сети крайним ПК добавлены интерфейсы для добавления третьей подсети.
+\begin{center}
+    \includegraphics[width=.9\textwidth]{12}
+\end{center}
+Изменились таблицы маршрутизации, 
+где более конкретно заданы пути для перехода из нашей сети, 
+чтобы обеспечить отправку сообщения любым удобным способом.
+
+\begin{center}
+    \includegraphics[width=.9\textwidth]{13}
+\end{center}
+Соответсвенно ARP таблицы тоже поменялись.
+
+\begin{minipage}{.5\textwidth}
+    \begin{center}
+        \includegraphics[width=.9\textwidth]{14}
+    \end{center}
+\end{minipage}
+\hfill
+\begin{minipage}{.5\textwidth}
+    \begin{center}
+        \includegraphics[width=.9\textwidth]{15}
+    \end{center}
+\end{minipage}
+
+\begin{center}
+    \includegraphics[width=.9\textwidth]{16}
+\end{center}
+
+\section*{Вывод}
+
+В ходе лабораторной работы было:
+\begin{itemize}
+    \item Изучили принципы построения и настройки моделей компьютерных
+    сетей в среде NetEmul.
+    \item Построили три простейшие модели компьютерной сети;
+    \item Выполнили настройку сети, заключающуюся в присвоении IP-адресов
+    интерфейсам сети;
+    \item Выполнили тестирование разработанных сетей путем проведения
+    экспериментов по передаче данных на основе протокола UDP;
+\end{itemize}
 
 \end{document}
 \includegraphics[width=.9\textwidth]{123}
