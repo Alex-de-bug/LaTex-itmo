@@ -1,3 +1,9 @@
+%-------------------------
+% Resume in Latex
+% Author : Sidratul Muntaha Ahmed
+% License : MIT
+%------------------------
+
 \documentclass[letterpaper,11pt]{article}
 
 \usepackage{latexsym}
@@ -12,20 +18,19 @@
 \usepackage[english,russian]{babel}
 \usepackage{tabularx}
 \input{glyphtounicode}
-\usepackage[utf8]{inputenc}
-\usepackage[T1,T2A]{fontenc}
+
 
 
 %----------FONT OPTIONS----------
 % sans-serif
-\usepackage[sfdefault]{FiraSans}
-\usepackage[sfdefault]{roboto}
-\usepackage[sfdefault]{noto-sans}
-\usepackage[default]{sourcesanspro}
+% \usepackage[sfdefault]{FiraSans}
+% \usepackage[sfdefault]{roboto}
+% \usepackage[sfdefault]{noto-sans}
+% \usepackage[default]{sourcesanspro}
 
 % serif
-\usepackage{CormorantGaramond}
-\usepackage{charter}
+% \usepackage{CormorantGaramond}
+% \usepackage{charter}
 
 
 \pagestyle{fancy}
@@ -104,88 +109,70 @@
 
 
 \begin{center}
-    \textbf{\Huge \scshape Александр Дениченко} \\ \vspace{1pt}
-    \small 8-921-512-43-61 $|$ \href{mailto:a.deni444enko@mail.ru}{\underline{a.deni444enko@mail.ru}} $|$ 
-    \href{https://t.me/nord_west_zap}{\underline{t.me/nord\_west\_zap}} $|$
-    \href{https://github.com/Alex-de-bug}{\underline{github.com/Alex-de-bug}}
+    \textbf{\Huge \scshape Дениченко Александр} \\ \vspace{1pt}
+    \small 8-921-512-43-61 $|$ \href{mailto:a.deni444enko@mail.ru}{\underline{a.deni444enko@mail.ru}}
 \end{center}
 
+
+%-----------EDUCATION-----------
+\section{Education}
+  \resumeSubHeadingListStart
+    \resumeSubheading
+      {Национальный исследовательский университет ИТМО}{Санкт-Петербург, RUS}
+      {Бакалавриат (Высшее)}{Окончание - 2026 год}
+          \resumeItemListStart
+            \resumeItem{Вычислительная техника, Системное прикладное и программное обеспечение}
+            \resumeItem{Средний балл: 4B-5A}
+            
+        \resumeItemListEnd
+
+  \resumeSubHeadingListEnd
+
+%-----------EXPERIENCE-----------
+\section{Experience}
+  \resumeSubHeadingListStart
+
+    \resumeSubheading
+      {Java-разработчик (Junior)}{Ноябрь 2022 — Март 2025}
+      {Laboratory of Cloud-Oriented Solutions and Modelling}{Лаборатория на базе университета, RUS}
+      \resumeItemListStart
+        \resumeItem{Оптимизировал выгрузку новых данных для сотрудников путём добавления функции множественного импорта из CSV-файлов.}
+        \resumeItem{Сделал распределённые транзакции с собственой реализацией 2PC, которые позволили добавить сохранение файлов импорта в S3-совместимое хранилище.}
+        \resumeItem{Отсутствовал механизм, позволяющий разработчикам предлагать идеи, что затрудняло генерацию инноваций. Реализовал систему для добавления идей от разработчиков, модерации их менеджерами и преобразования в задачи. Так же добавил механизмы тегов (включая функции и индексы на уровне базы данных) для быстрого поиска и сортировки по задачам, людям, спринтам, командам, релизам.}
+        \resumeItem{Добавил логику работы WebSocket для улучшения взаимодействия в реальном времени.}
+        \resumeItem{Реализовал панель администратора с JWT-аутентификацией через Spring Security. Обновил настройки Nginx для устранения CORS-проблем.}
+        \resumeItem{Проводил нагрузочные тесты при помощи JMeter, по итогам которых переписал полностью логику транзакций: некоторые транзакциионные операции были переделаны на ручной контроль с использованием JTA, XA. Улучшилась стабильность системы при пиковых нагрузках.}
+
+        \resumeItemListEnd
+      
+     
+    \resumeSubHeadingListEnd
+
 %-----------TECHNICAL SKILLS-----------
-\section{Технические навыки}
+\section{Technical Skills}
  \begin{itemize}[leftmargin=0.15in, label={}]
     \small{\item{
-     \textbf{Языки программирования}{: Java (Core, Collections, Concurrency), C, Python, Assembly (RISC-V)} \\
-     \textbf{Фреймворки и технологии}{: Spring (Boot, MVC, Security, Data, Web, Mail), Hibernate ORM, Criteria API, JTA} \\
-     \textbf{Веб-разработка}{: React, HTML/CSS, RESTful APIs} \\
-     \textbf{DevOps}{: Docker, Git, GitHub, GitLab, Nginx, Jenkins, Jira} \\
-     \textbf{Базы данных и миграции}{: PostgreSQL, SQL, Flyway} \\
-     \textbf{API и протоколы}{: REST API, JWT, OAuth 2.0} \\
-     \textbf{Дополнительные технологии и концепции}{: Kafka, Redis, SOLID, ООП, АОП, Tomcat, Maven}
+     \textbf{Стек}{: Java, Hibernate ORM, Linux, JPA, JTA, PostgreSQL, Spring Framework, Spring, REST API, Hibernate, Spring Boot, Spring MVC, Spring Data, Spring Security, ООП, Git,
+     GitHub, Gitlab, Docker, SOLID, Nginx, Spring Web, Jenkins, Maven, Tomcat, SQL, ORM, Kafka, Redis, Jira, Flyway}
     }}
  \end{itemize}
 
- % -----------EXPERIENCE-----------
-\section{Опыт работы}
-\resumeSubHeadingListStart
-  \resumeSubheading
-    {Junior Java Developer}{Ноябрь 2023 - Настоящее время}
-    {COSM Lab, Команда Crossroads}{Санкт-Петербург, РФ}
-    \resumeItemListStart
-      \resumeItem{Оптимизировал выгрузку новых данных для сотрудников путём добавления функции множественного импорта из csv файлов.}
-      \resumeItem{Сделал распределённые транзакции с собственой реализацией 2PC, которые позволили добавить сохранение файлов импорта в S3 совместимое хранилище.}
-      \resumeItem{Отсутствовал механизм, позволяющий разработчикам предлагать идеи, что затрудняло генерацию инноваций. Реализовал систему для добавления идей от разработчиков, модерации их менеджерами и преобразования в задачи. Так же добавил механизмы тегов (включая функции и индексы на уровне базы данных) для быстрого поиска и сортировки по задачам, людям, спринтам, командам, релизам.}
-      \resumeItem{Добавил логику работы WebSocket для улучшения взаимодействия в реальном времени. Реализовал панель администратора с JWT-аутентификацией через Spring Security. Обновил настройки Nginx для устранения CORS-проблем.}
-      \resumeItem{Провёл нагрузочное тестирование используя jmeter, по итогам которого, переписал полностью логику транзакций, некоторые транзакции переделаны на ручной контроль с использованием JPA, JTA, XA. Улучшилась стабильность системы при пиковых нагрузках.}
-      \resumeItemListEnd
-  \resumeSubHeadingListEnd
-
-%-----------EDUCATION-----------
-\section{Образование}
-  \resumeSubHeadingListStart
-    \resumeSubheading
-      {Университет ИТМО}{Санкт-Петербург, РФ}
-      {Бакалавриат, Программная инженерия}{Окончание в июле 2026}
-          \resumeItemListStart
-            \resumeItem{Научное исследование по теме "Архитектура процессора с тегированной памятью"}
-            \resumeItem{Разработан эмулятор процессора RISC-V с реализацией кастомного языка ассемблера}
-            \resumeItem{Изучение функционирования ядра, внедрение buddy аллокатора, его оптимизация, добавление pthreads, внедрение системы тегирования виртуальной памяти, внедрение ленивой аллокации на базе учебной xv6}
-            \resumeItem{Написание кастомной файловой системы}
-            \resumeItem{Средний балл: 4.7/5.0}
-        \resumeItemListEnd
-  \resumeSubHeadingListEnd
-
-
-%-----------PROJECTS-----------
-\section{Проекты}
-
-\resumeSubHeadingListStart
-
-  \resumeProjectHeading
-      {\textbf{Калькулятор бухгалтерских услуг} $|$ \emph{Spring Boot, React, PostgreSQL} $|$ \emph{Full-Stack}}{Июль 2024}
-      \resumeItemListStart
-        \resumeItem{Разработана автоматизированная система расчета стоимости бухгалтерских услуг}
-        \resumeItem{Реализована панель администратора с аутентификацией JWT и Spring Security}
-        \resumeItem{Реализованы миграции базы данных с помощью Flyway и оптимизирована производительность запросов с помощью индексов}
-        \resumeItem{Создана система уведомлений по email с собственным доменом для обратной связи}
-        \resumeItem{Реализован автоматизированный процесс развертывания с использованием Docker и Nginx}
-
-    \resumeItemListEnd
-
-\resumeSubHeadingListEnd
 %-------------------------------------------
 
 %-----------COMMUNITY AND LEADERSHIP-----------
-\section{Сообщество и лидерство}
+\section{Community \& Leadership}
   \resumeSubHeadingListStart
-    \resumeSubheading
-      {Full-Stack разработчик. 3-е место}{Сентябрь 2023}
-      {Хакатон "На Севере кодить!"}{Мурманск, РФ}
-      \resumeItemListStart
-        \resumeItem{Разработано два веб-приложений для системы управления транспортными картами}
-        \resumeItem{Мобильное приложение на React Native для управления транспортными картами пользователей}
-        \resumeItem{Панель администратора с использованием фреймворка Next.js для управления системой}
-      \resumeItemListEnd
-    \resumeSubHeadingListEnd
 
+    \resumeSubheading
+      {Работа в команде}{}
+      {Laboratory of Cloud-Oriented Solutions and Modelling}{}
+      \resumeItemListStart
+        \resumeItem{Наставничество новых членов команды}
+        \resumeItem{Эффективная коммуникация}
+        \resumeItem{Обмен опытом/знаниями}
+        \resumeItem{Работа по методологии Agile}
+      \resumeItemListEnd
+
+    \resumeSubHeadingListEnd
 
 \end{document}
