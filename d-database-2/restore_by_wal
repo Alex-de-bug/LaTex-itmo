@@ -1,0 +1,433 @@
+#!/bin/bash
+# Скрипт для демонстрации и восстановления после логического повреждения данных
+# с использованием архивных WAL файлов
+
+set -e
+
+# Конфигурационные параметры
+PG_USER="postgres"
+PG_PORT=9193
+WAL_ARCHIVE_DIR="/var/lib/postgresql/wal_archive"
+PGDATA="/var/lib/postgresql/data"
+BACKUP_DIR="/tmp/pg_basebackup"
+LOG_FILE="/tmp/recovery_log.txt"
+
+echo "$(date): Начало процесса демонстрации логического повреждения данных" | tee -a $LOG_FILE
+
+# Шаг 1: Настройка архивирования WAL (если еще не настроено)
+echo "$(date): Проверка и настройка архивирования WAL..." | tee -a $LOG_FILE
+
+# Создаем директорию для WAL архивов, если ее нет
+mkdir -p $WAL_ARCHIVE_DIR
+chown postgres:postgres $WAL_ARCHIVE_DIR
+
+# Настраиваем параметры архивирования WAL в postgresql.conf
+su - postgres -c "psql -p $PG_PORT -c \"ALTER SYSTEM SET wal_level = 'replica';\"" || {
+    echo "$(date): Ошибка при настройке wal_level" | tee -a $LOG_FILE
+}
+
+su - postgres -c "psql -p $PG_PORT -c \"ALTER SYSTEM SET archive_mode = 'on';\"" || {
+    echo "$(date): Ошибка при настройке archive_mode" | tee -a $LOG_FILE
+}
+
+su - postgres -c "psql -p $PG_PORT -c \"ALTER SYSTEM SET archive_command = 'cp %p ${WAL_ARCHIVE_DIR}/%f';\"" || {
+    echo "$(date): Ошибка при настройке archive_command" | tee -a $LOG_FILE
+}
+
+# Перезагружаем PostgreSQL для применения настроек
+echo "$(date): Перезагрузка PostgreSQL для применения настроек архивирования..." | tee -a $LOG_FILE
+if command -v pg_ctl &> /dev/null; then
+    su - postgres -c "pg_ctl restart -D $PGDATA -o '-p $PG_PORT'" || {
+        echo "$(date): Ошибка при перезапуске PostgreSQL" | tee -a $LOG_FILE
+        exit 1
+    }
+else
+    echo "$(date): Утилита pg_ctl не найдена. Пробуем другие способы перезапуска..." | tee -a $LOG_FILE
+    # Пытаемся остановить и запустить PostgreSQL
+    POSTGRES_PIDS=$(ps aux | grep postgres | grep -v grep | awk '{print $2}')
+    if [ ! -z "$POSTGRES_PIDS" ]; then
+        echo "$(date): Останавливаем процессы PostgreSQL..." | tee -a $LOG_FILE
+        for pid in $POSTGRES_PIDS; do
+            kill -15 $pid
+        done
+        sleep 5
+    fi
+    su - postgres -c "postgres -D $PGDATA -p $PG_PORT &" || {
+        echo "$(date): Ошибка при запуске PostgreSQL" | tee -a $LOG_FILE
+        exit 1
+    }
+    sleep 5
+fi
+
+# Проверяем успешность подключения к PostgreSQL
+if ! su - postgres -c "psql -p $PG_PORT -c '\l'" > /dev/null 2>&1; then
+    echo "$(date): Ошибка: не удается подключиться к PostgreSQL" | tee -a $LOG_FILE
+    exit 1
+fi
+
+# Шаг 2: Создаем базовую резервную копию (базовый бэкап)
+echo "$(date): Создание базовой резервной копии..." | tee -a $LOG_FILE
+mkdir -p $BACKUP_DIR
+chown postgres:postgres $BACKUP_DIR
+
+if command -v pg_basebackup &> /dev/null; then
+    su - postgres -c "pg_basebackup -D $BACKUP_DIR -p $PG_PORT -X stream -c fast -P" || {
+        echo "$(date): Ошибка при создании базовой резервной копии" | tee -a $LOG_FILE
+        exit 1
+    }
+else
+    echo "$(date): Утилита pg_basebackup не найдена. Необходимо установить PostgreSQL-клиент" | tee -a $LOG_FILE
+    exit 1
+fi
+
+# Шаг 3: Добавляем 2-3 новые строки в каждую таблицу
+echo "$(date): Добавление новых данных в таблицы..." | tee -a $LOG_FILE
+
+# Получаем список таблиц в базе данных
+TABLES=$(su - postgres -c "psql -p $PG_PORT -t -c \"SELECT tablename FROM pg_tables WHERE schemaname = 'public';\"" | grep -v '^\s*$')
+
+# Проверяем наличие таблиц
+if [ -z "$TABLES" ]; then
+    echo "$(date): В базе данных нет таблиц в схеме public. Создаем тестовую таблицу..." | tee -a $LOG_FILE
+    
+    # Создаем тестовую таблицу
+    su - postgres -c "psql -p $PG_PORT -c \"
+    CREATE TABLE IF NOT EXISTS test_parent (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    
+    CREATE TABLE IF NOT EXISTS test_child (
+        id SERIAL PRIMARY KEY,
+        parent_id INTEGER REFERENCES test_parent(id),
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    \"" || {
+        echo "$(date): Ошибка при создании тестовых таблиц" | tee -a $LOG_FILE
+        exit 1
+    }
+    
+    # Добавляем начальные данные
+    su - postgres -c "psql -p $PG_PORT -c \"
+    INSERT INTO test_parent (name) VALUES 
+        ('Parent 1'),
+        ('Parent 2'),
+        ('Parent 3');
+        
+    INSERT INTO test_child (parent_id, description) VALUES 
+        (1, 'Child of Parent 1'),
+        (2, 'Child of Parent 2'),
+        (3, 'Child of Parent 3');
+    \"" || {
+        echo "$(date): Ошибка при добавлении начальных данных" | tee -a $LOG_FILE
+    }
+    
+    # Обновляем список таблиц
+    TABLES=$(su - postgres -c "psql -p $PG_PORT -t -c \"SELECT tablename FROM pg_tables WHERE schemaname = 'public';\"" | grep -v '^\s*$')
+fi
+
+# Фиксируем время перед добавлением данных
+BEFORE_INSERT_TIME=$(date +"%Y-%m-%d %H:%M:%S")
+echo "$(date): Фиксируем время перед добавлением данных: $BEFORE_INSERT_TIME" | tee -a $LOG_FILE
+
+# Добавляем данные в каждую таблицу
+for table in $TABLES; do
+    echo "$(date): Добавление данных в таблицу $table..." | tee -a $LOG_FILE
+    
+    # Получаем список столбцов таблицы
+    COLUMNS=$(su - postgres -c "psql -p $PG_PORT -t -c \"
+        SELECT string_agg(column_name, ',') 
+        FROM information_schema.columns 
+        WHERE table_name = '$table' 
+        AND column_name NOT IN ('id', 'created_at') 
+        AND is_generated = 'NEVER'
+    \"" | tr -d ' ')
+    
+    if [ -z "$COLUMNS" ]; then
+        echo "$(date): Таблица $table не имеет подходящих столбцов для вставки данных" | tee -a $LOG_FILE
+        continue
+    fi
+    
+    # Вставляем данные, адаптируя запрос к структуре таблицы
+    su - postgres -c "psql -p $PG_PORT -c \"
+        DO \\\$\\\$
+        DECLARE
+            cols text := '$COLUMNS';
+            cols_arr text[];
+            insert_sql text := 'INSERT INTO $table (';
+            values_part text := ') VALUES ';
+        BEGIN
+            cols_arr := string_to_array(cols, ',');
+            
+            -- Добавляем столбцы в запрос
+            insert_sql := insert_sql || cols;
+            
+            -- Генерируем значения для 3 строк
+            FOR i IN 1..3 LOOP
+                values_part := values_part || '(';
+                FOR j IN 1..array_length(cols_arr, 1) LOOP
+                    -- Простая логика для разных типов столбцов
+                    IF position('id' in cols_arr[j]) > 0 OR position('_id' in cols_arr[j]) > 0 THEN
+                        -- Для столбцов с ID находим максимальное значение и добавляем к нему
+                        values_part := values_part || '(SELECT COALESCE(MAX(' || cols_arr[j] || '), 0) + ' || i || ' FROM $table)';
+                    ELSIF data_type = 'integer' THEN
+                        values_part := values_part || (i * 100)::text;
+                    ELSIF data_type = 'boolean' THEN
+                        values_part := values_part || 'true';
+                    ELSE
+                        values_part := values_part || '''' || 'New Record ' || i || ' - ' || now() || '''';
+                    END IF;
+                    
+                    IF j < array_length(cols_arr, 1) THEN
+                        values_part := values_part || ', ';
+                    END IF;
+                END LOOP;
+                values_part := values_part || ')';
+                
+                IF i < 3 THEN
+                    values_part := values_part || ', ';
+                END IF;
+            END LOOP;
+            
+            -- Собираем и выполняем запрос
+            BEGIN
+                EXECUTE insert_sql || values_part;
+                RAISE NOTICE 'Добавлено 3 строки в таблицу %', '$table';
+            EXCEPTION WHEN OTHERS THEN
+                RAISE NOTICE 'Ошибка при добавлении данных в таблицу %: %', '$table', SQLERRM;
+            END;
+        END \\\$\\\$;
+    \"" || {
+        echo "$(date): Ошибка при добавлении данных в таблицу $table" | tee -a $LOG_FILE
+    }
+done
+
+# Создаем переключение WAL для обеспечения архивирования последних транзакций
+su - postgres -c "psql -p $PG_PORT -c \"SELECT pg_switch_wal();\"" || {
+    echo "$(date): Ошибка при выполнении pg_switch_wal()" | tee -a $LOG_FILE
+}
+
+# Шаг 4: Определяем таблицу с внешними ключами для симуляции ошибки
+echo "$(date): Определение таблицы с внешними ключами для симуляции ошибки..." | tee -a $LOG_FILE
+
+FK_TABLE=$(su - postgres -c "psql -p $PG_PORT -t -c \"
+    SELECT tc.table_name
+    FROM information_schema.table_constraints tc
+    JOIN information_schema.constraint_column_usage ccu 
+    ON tc.constraint_name = ccu.constraint_name
+    WHERE tc.constraint_type = 'FOREIGN KEY'
+    LIMIT 1;
+\"" | tr -d ' ')
+
+if [ -z "$FK_TABLE" ]; then
+    echo "$(date): Таблица с внешними ключами не найдена. Используем test_child, если она существует..." | tee -a $LOG_FILE
+    FK_TABLE="test_child"
+fi
+
+# Проверяем существование таблицы
+if ! su - postgres -c "psql -p $PG_PORT -t -c \"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '$FK_TABLE');\"" | grep -q t; then
+    echo "$(date): Ошибка: Таблица $FK_TABLE не существует" | tee -a $LOG_FILE
+    exit 1
+fi
+
+# Получаем информацию о внешнем ключе
+FK_INFO=$(su - postgres -c "psql -p $PG_PORT -t -c \"
+    SELECT
+        kcu.column_name as fk_column,
+        ccu.table_name as ref_table,
+        ccu.column_name as ref_column
+    FROM information_schema.table_constraints tc
+    JOIN information_schema.key_column_usage kcu
+    ON tc.constraint_name = kcu.constraint_name
+    JOIN information_schema.constraint_column_usage ccu
+    ON tc.constraint_name = ccu.constraint_name
+    WHERE tc.constraint_type = 'FOREIGN KEY'
+    AND tc.table_name = '$FK_TABLE'
+    LIMIT 1;
+\"")
+
+FK_COLUMN=$(echo "$FK_INFO" | awk '{print $1}')
+REF_TABLE=$(echo "$FK_INFO" | awk '{print $2}')
+REF_COLUMN=$(echo "$FK_INFO" | awk '{print $3}')
+
+# Если таблица test_child есть, но нет информации о внешних ключах
+if [ -z "$FK_COLUMN" ] && [ "$FK_TABLE" = "test_child" ]; then
+    FK_COLUMN="parent_id"
+    REF_TABLE="test_parent"
+    REF_COLUMN="id"
+fi
+
+echo "$(date): Таблица с внешним ключом: $FK_TABLE, Столбец: $FK_COLUMN, Ссылается на: $REF_TABLE($REF_COLUMN)" | tee -a $LOG_FILE
+
+# Фиксируем время перед ошибочным изменением данных
+ERROR_TIME=$(date +"%Y-%m-%d %H:%M:%S")
+echo "$(date): Фиксируем время перед ошибочным изменением данных: $ERROR_TIME" | tee -a $LOG_FILE
+
+# Шаг 5: Симулируем ошибку - подменяем значения внешних ключей на случайные
+echo "$(date): Симуляция ошибки - подмена значений внешних ключей на случайные..." | tee -a $LOG_FILE
+
+su - postgres -c "psql -p $PG_PORT -c \"
+    -- Показываем текущие данные перед изменением
+    SELECT * FROM $FK_TABLE LIMIT 10;
+    
+    -- Подменяем значения внешних ключей на случайные (возможно некорректные)
+    UPDATE $FK_TABLE
+    SET $FK_COLUMN = (
+        SELECT ceil(random() * 1000)::int  -- Генерируем случайное число от 1 до 1000
+    )
+    WHERE $FK_COLUMN IS NOT NULL;
+    
+    -- Показываем данные после изменения
+    SELECT * FROM $FK_TABLE LIMIT 10;
+\"" || {
+    echo "$(date): Предупреждение: Возникли ошибки при подмене значений внешних ключей" | tee -a $LOG_FILE
+}
+
+# Создаем переключение WAL после симуляции ошибки
+su - postgres -c "psql -p $PG_PORT -c \"SELECT pg_switch_wal();\"" || {
+    echo "$(date): Ошибка при выполнении pg_switch_wal()" | tee -a $LOG_FILE
+}
+
+echo "$(date): Ошибка симулирована. Значения внешних ключей изменены на случайные." | tee -a $LOG_FILE
+
+# Шаг 6: Восстановление данных до момента перед ошибкой
+echo "$(date): Начало восстановления данных до момента перед ошибкой..." | tee -a $LOG_FILE
+
+# Останавливаем PostgreSQL
+echo "$(date): Останавливаем PostgreSQL перед восстановлением..." | tee -a $LOG_FILE
+if command -v pg_ctl &> /dev/null; then
+    su - postgres -c "pg_ctl stop -D $PGDATA -m fast" || {
+        echo "$(date): Ошибка при остановке PostgreSQL" | tee -a $LOG_FILE
+    }
+else
+    # Останавливаем процессы PostgreSQL
+    POSTGRES_PIDS=$(ps aux | grep postgres | grep -v grep | awk '{print $2}')
+    if [ ! -z "$POSTGRES_PIDS" ]; then
+        for pid in $POSTGRES_PIDS; do
+            echo "$(date): Останавливаем процесс PostgreSQL с PID $pid" | tee -a $LOG_FILE
+            kill -15 $pid
+        done
+        sleep 5
+        # Проверяем, что все процессы остановлены
+        POSTGRES_PIDS=$(ps aux | grep postgres | grep -v grep | awk '{print $2}')
+        if [ ! -z "$POSTGRES_PIDS" ]; then
+            for pid in $POSTGRES_PIDS; do
+                kill -9 $pid
+            done
+        fi
+    fi
+fi
+
+# Подготавливаем recovery.conf для восстановления до заданной точки
+echo "$(date): Подготовка конфигурации для восстановления по времени (PITR)..." | tee -a $LOG_FILE
+
+# Копируем базовую резервную копию в директорию данных PostgreSQL
+rm -rf ${PGDATA:?}/*
+cp -a $BACKUP_DIR/* $PGDATA/
+chown -R postgres:postgres $PGDATA
+
+# Создаем файл восстановления
+# В новых версиях PostgreSQL вместо recovery.conf используются параметры в postgresql.conf и файл recovery.signal
+if [ -d "$PGDATA" ]; then
+    # Для PostgreSQL 12 и выше
+    cat > $PGDATA/postgresql.conf << EOF
+# Параметры восстановления
+restore_command = 'cp ${WAL_ARCHIVE_DIR}/%f %p'
+recovery_target_time = '$ERROR_TIME'
+recovery_target_action = 'pause'
+EOF
+
+    # Создаем файл recovery.signal
+    touch $PGDATA/recovery.signal
+    chown postgres:postgres $PGDATA/recovery.signal
+else
+    echo "$(date): Ошибка: Директория данных $PGDATA не существует" | tee -a $LOG_FILE
+    exit 1
+fi
+
+# Запускаем PostgreSQL в режиме восстановления
+echo "$(date): Запуск PostgreSQL в режиме восстановления..." | tee -a $LOG_FILE
+if command -v pg_ctl &> /dev/null; then
+    su - postgres -c "pg_ctl start -D $PGDATA -o '-p $PG_PORT'" || {
+        echo "$(date): Ошибка при запуске PostgreSQL в режиме восстановления" | tee -a $LOG_FILE
+        exit 1
+    }
+else
+    su - postgres -c "postgres -D $PGDATA -p $PG_PORT &" || {
+        echo "$(date): Ошибка при запуске PostgreSQL в режиме восстановления" | tee -a $LOG_FILE
+        exit 1
+    }
+    sleep 5
+fi
+
+# Ожидаем завершения процесса восстановления
+echo "$(date): Ожидание завершения процесса восстановления..." | tee -a $LOG_FILE
+sleep 10
+
+# Проверка статуса восстановления
+if su - postgres -c "psql -p $PG_PORT -c \"SELECT pg_is_in_recovery();\"" | grep -q "t"; then
+    echo "$(date): PostgreSQL все еще в процессе восстановления" | tee -a $LOG_FILE
+    
+    # Даем команду продолжить после паузы
+    su - postgres -c "psql -p $PG_PORT -c \"SELECT pg_wal_replay_resume();\"" || {
+        echo "$(date): Ошибка при выполнении pg_wal_replay_resume()" | tee -a $LOG_FILE
+    }
+    
+    # Ожидаем еще некоторое время
+    sleep 10
+fi
+
+# Завершаем восстановление, если PostgreSQL все еще находится в режиме восстановления
+if su - postgres -c "psql -p $PG_PORT -c \"SELECT pg_is_in_recovery();\"" | grep -q "t"; then
+    echo "$(date): Завершение процесса восстановления..." | tee -a $LOG_FILE
+    
+    # Останавливаем PostgreSQL
+    if command -v pg_ctl &> /dev/null; then
+        su - postgres -c "pg_ctl stop -D $PGDATA -m fast" || {
+            echo "$(date): Ошибка при остановке PostgreSQL" | tee -a $LOG_FILE
+        }
+    else
+        # Останавливаем процессы PostgreSQL
+        POSTGRES_PIDS=$(ps aux | grep postgres | grep -v grep | awk '{print $2}')
+        if [ ! -z "$POSTGRES_PIDS" ]; then
+            for pid in $POSTGRES_PIDS; do
+                kill -15 $pid
+            done
+            sleep 5
+        fi
+    fi
+    
+    # Удаляем файл recovery.signal
+    rm -f $PGDATA/recovery.signal
+    
+    # Запускаем PostgreSQL в обычном режиме
+    if command -v pg_ctl &> /dev/null; then
+        su - postgres -c "pg_ctl start -D $PGDATA -o '-p $PG_PORT'" || {
+            echo "$(date): Ошибка при запуске PostgreSQL после восстановления" | tee -a $LOG_FILE
+            exit 1
+        }
+    else
+        su - postgres -c "postgres -D $PGDATA -p $PG_PORT &" || {
+            echo "$(date): Ошибка при запуске PostgreSQL после восстановления" | tee -a $LOG_FILE
+            exit 1
+        }
+        sleep 5
+    fi
+fi
+
+# Шаг 7: Проверка результатов восстановления
+echo "$(date): Проверка результатов восстановления..." | tee -a $LOG_FILE
+
+su - postgres -c "psql -p $PG_PORT -c \"
+    -- Проверяем состояние таблицы после восстановления
+    SELECT * FROM $FK_TABLE LIMIT 10;
+\"" || {
+    echo "$(date): Ошибка при проверке результатов восстановления" | tee -a $LOG_FILE
+}
+
+echo "$(date): Восстановление завершено. Данные должны быть восстановлены до момента перед ошибкой ($ERROR_TIME)" | tee -a $LOG_FILE
+echo "$(date): Сравните текущие данные с теми, что были добавлены после $BEFORE_INSERT_TIME" | tee -a $LOG_FILE
+
+echo "$(date): Весь процесс завершен" | tee -a $LOG_FILE

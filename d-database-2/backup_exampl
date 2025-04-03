@@ -1,0 +1,278 @@
+root@49f86d293fa3:/# sudo -u postgres bash /restore.sh 
+Найдены PostgreSQL бинарные файлы в /usr/lib/postgresql/17/bin
+Будет использован бэкап: /backups/full_backup-20250403_162858.sql.gz
+Проверка доступных локалей в системе...
+Будет использована локаль: C
+Создание модифицированного дампа без ошибок локали...
+Создание директорий для табличных пространств...
+Создание директории: /var/lib/postgresql/yva58
+Создание директории: /var/lib/postgresql/yrp30
+Создание директории: /var/lib/postgresql/sgk31
+Очистка PGDATA директории...
+Инициализация нового кластера...
+The files belonging to this database system will be owned by user "postgres".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "C".
+The default database encoding has accordingly been set to "SQL_ASCII".
+The default text search configuration will be set to "english".
+
+Data page checksums are disabled.
+
+fixing permissions on existing directory /var/lib/postgresql/data ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default "max_connections" ... 100
+selecting default "shared_buffers" ... 128MB
+selecting default time zone ... Europe/Moscow
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+syncing data to disk ... ok
+
+initdb: warning: enabling "trust" authentication for local connections
+initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+
+Success. You can now start the database server using:
+
+    pg_ctl -D /var/lib/postgresql/data -l logfile start
+
+Запуск PostgreSQL для восстановления...
+waiting for server to start....2025-04-03 23:35:53.159 MSK [2826] LOG:  starting PostgreSQL 17.4 (Ubuntu 17.4-1.pgdg24.04+2) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0, 64-bit
+2025-04-03 23:35:53.159 MSK [2826] LOG:  listening on IPv4 address "0.0.0.0", port 9193
+2025-04-03 23:35:53.159 MSK [2826] LOG:  listening on IPv6 address "::", port 9193
+2025-04-03 23:35:53.165 MSK [2826] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.9193"
+2025-04-03 23:35:53.172 MSK [2829] LOG:  database system was shut down at 2025-04-03 23:35:50 MSK
+2025-04-03 23:35:53.177 MSK [2826] LOG:  database system is ready to accept connections
+ done
+server started
+Восстановление данных из модифицированного бэкапа...
+SET
+SET
+SET
+CREATE ROLE
+ALTER ROLE
+2025-04-03 23:35:53.257 MSK [2836] ERROR:  role "postgres" already exists
+2025-04-03 23:35:53.257 MSK [2836] STATEMENT:  CREATE ROLE postgres;
+ERROR:  role "postgres" already exists
+ALTER ROLE
+2025-04-03 23:35:53.261 MSK [2836] ERROR:  directory "/var/lib/postgresql/yva58/PG_17_202406281" already in use as a tablespace
+2025-04-03 23:35:53.261 MSK [2836] STATEMENT:  CREATE TABLESPACE yva58 OWNER postgres LOCATION '/var/lib/postgresql/yva58';
+ERROR:  directory "/var/lib/postgresql/yva58/PG_17_202406281" already in use as a tablespace
+2025-04-03 23:35:53.261 MSK [2836] ERROR:  tablespace "yva58" does not exist
+2025-04-03 23:35:53.261 MSK [2836] STATEMENT:  GRANT ALL ON TABLESPACE yva58 TO fatreduser;
+ERROR:  tablespace "yva58" does not exist
+2025-04-03 23:35:53.261 MSK [2836] ERROR:  directory "/var/lib/postgresql/yrp30/PG_17_202406281" already in use as a tablespace
+2025-04-03 23:35:53.261 MSK [2836] STATEMENT:  CREATE TABLESPACE yrp30 OWNER postgres LOCATION '/var/lib/postgresql/yrp30';
+ERROR:  directory "/var/lib/postgresql/yrp30/PG_17_202406281" already in use as a tablespace
+2025-04-03 23:35:53.261 MSK [2836] ERROR:  tablespace "yrp30" does not exist
+2025-04-03 23:35:53.261 MSK [2836] STATEMENT:  GRANT ALL ON TABLESPACE yrp30 TO fatreduser;
+ERROR:  tablespace "yrp30" does not exist
+2025-04-03 23:35:53.261 MSK [2836] ERROR:  directory "/var/lib/postgresql/sgk31/PG_17_202406281" already in use as a tablespace
+2025-04-03 23:35:53.261 MSK [2836] STATEMENT:  CREATE TABLESPACE sgk31 OWNER postgres LOCATION '/var/lib/postgresql/sgk31';
+ERROR:  directory "/var/lib/postgresql/sgk31/PG_17_202406281" already in use as a tablespace
+2025-04-03 23:35:53.261 MSK [2836] ERROR:  tablespace "sgk31" does not exist
+2025-04-03 23:35:53.261 MSK [2836] STATEMENT:  GRANT ALL ON TABLESPACE sgk31 TO fatreduser;
+ERROR:  tablespace "sgk31" does not exist
+You are now connected to database "template1" as user "postgres".
+SET
+SET
+SET
+SET
+SET
+SET
+ set_config 
+------------
+ 
+(1 row)
+
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+SET
+ set_config 
+------------
+ 
+(1 row)
+
+SET
+SET
+SET
+SET
+CREATE DATABASE
+ALTER DATABASE
+You are now connected to database "fatrednews" as user "postgres".
+SET
+SET
+SET
+SET
+SET
+SET
+ set_config 
+------------
+ 
+(1 row)
+
+SET
+SET
+SET
+SET
+2025-04-03 23:35:53.309 MSK [2838] ERROR:  invalid value for parameter "default_tablespace": "sgk31"
+2025-04-03 23:35:53.309 MSK [2838] DETAIL:  Tablespace "sgk31" does not exist.
+2025-04-03 23:35:53.309 MSK [2838] STATEMENT:  SET default_tablespace = sgk31;
+ERROR:  invalid value for parameter "default_tablespace": "sgk31"
+DETAIL:  Tablespace "sgk31" does not exist.
+SET
+CREATE TABLE
+ALTER TABLE
+CREATE SEQUENCE
+ALTER SEQUENCE
+ALTER SEQUENCE
+2025-04-03 23:35:53.322 MSK [2838] ERROR:  invalid value for parameter "default_tablespace": "yrp30"
+2025-04-03 23:35:53.322 MSK [2838] DETAIL:  Tablespace "yrp30" does not exist.
+2025-04-03 23:35:53.322 MSK [2838] STATEMENT:  SET default_tablespace = yrp30;
+ERROR:  invalid value for parameter "default_tablespace": "yrp30"
+DETAIL:  Tablespace "yrp30" does not exist.
+CREATE TABLE
+ALTER TABLE
+CREATE SEQUENCE
+ALTER SEQUENCE
+ALTER SEQUENCE
+2025-04-03 23:35:53.333 MSK [2838] ERROR:  invalid value for parameter "default_tablespace": "yva58"
+2025-04-03 23:35:53.333 MSK [2838] DETAIL:  Tablespace "yva58" does not exist.
+2025-04-03 23:35:53.333 MSK [2838] STATEMENT:  SET default_tablespace = yva58;
+ERROR:  invalid value for parameter "default_tablespace": "yva58"
+DETAIL:  Tablespace "yva58" does not exist.
+CREATE TABLE
+ALTER TABLE
+CREATE SEQUENCE
+ALTER SEQUENCE
+ALTER SEQUENCE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+COPY 1
+COPY 1
+COPY 1
+ setval 
+--------
+     33
+(1 row)
+
+ setval 
+--------
+     33
+(1 row)
+
+ setval 
+--------
+     33
+(1 row)
+
+SET
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+GRANT
+GRANT
+You are now connected to database "postgres" as user "postgres".
+SET
+SET
+SET
+SET
+SET
+SET
+ set_config 
+------------
+ 
+(1 row)
+
+SET
+SET
+SET
+SET
+Ожидание завершения восстановления...
+Перезапуск PostgreSQL для применения всех изменений...
+waiting for server to shut down....2025-04-03 23:35:58.383 MSK [2826] LOG:  received fast shutdown request
+2025-04-03 23:35:58.387 MSK [2826] LOG:  aborting any active transactions
+2025-04-03 23:35:58.388 MSK [2826] LOG:  background worker "logical replication launcher" (PID 2832) exited with exit code 1
+2025-04-03 23:35:58.388 MSK [2827] LOG:  shutting down
+2025-04-03 23:35:58.391 MSK [2827] LOG:  checkpoint starting: shutdown immediate
+2025-04-03 23:35:59.204 MSK [2827] LOG:  checkpoint complete: wrote 950 buffers (5.8%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.012 s, sync=0.790 s, total=0.816 s; sync files=327, longest=0.004 s, average=0.003 s; distance=4317 kB, estimate=4317 kB; lsn=0/1921888, redo lsn=0/1921888
+2025-04-03 23:35:59.210 MSK [2826] LOG:  database system is shut down
+ done
+server stopped
+waiting for server to start....2025-04-03 23:35:59.302 MSK [2847] LOG:  starting PostgreSQL 17.4 (Ubuntu 17.4-1.pgdg24.04+2) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0, 64-bit
+2025-04-03 23:35:59.302 MSK [2847] LOG:  listening on IPv4 address "0.0.0.0", port 9193
+2025-04-03 23:35:59.302 MSK [2847] LOG:  listening on IPv6 address "::", port 9193
+2025-04-03 23:35:59.308 MSK [2847] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.9193"
+2025-04-03 23:35:59.315 MSK [2850] LOG:  database system was shut down at 2025-04-03 23:35:59 MSK
+2025-04-03 23:35:59.320 MSK [2847] LOG:  database system is ready to accept connections
+ done
+server started
+Восстановление завершено!
+Проверьте логи на наличие ошибок и убедитесь, что все базы данных созданы.
+Список баз данных:
+                                                  List of databases
+    Name    |  Owner   | Encoding  | Locale Provider | Collate | Ctype | Locale | ICU
+ Rules |    Access privileges    
+------------+----------+-----------+-----------------+---------+-------+--------+----
+-------+-------------------------
+ fatrednews | postgres | UTF8      | libc            | C       | C     |        |    
+       | =Tc/postgres           +
+            |          |           |                 |         |       |        |    
+       | postgres=CTc/postgres  +
+            |          |           |                 |         |       |        |    
+       | fatreduser=CTc/postgres
+ postgres   | postgres | SQL_ASCII | libc            | C       | C     |        |    
+       | 
+ template0  | postgres | SQL_ASCII | libc            | C       | C     |        |    
+       | =c/postgres            +
+            |          |           |                 |         |       |        |    
+       | postgres=CTc/postgres
+ template1  | postgres | SQL_ASCII | libc            | C       | C     |        |    
+       | =c/postgres            +
+            |          |           |                 |         |       |        |    
+       | postgres=CTc/postgres
+(4 rows)
+
+root@49f86d293fa3:/# psql -p 9193 -u postgres -d fatrednews
+/usr/lib/postgresql/17/bin/psql: invalid option -- 'u'
+psql: hint: Try "psql --help" for more information.
+root@49f86d293fa3:/# psql -p 9193 -U postgres -d fatrednews
+psql (17.4 (Ubuntu 17.4-1.pgdg24.04+2))
+Type "help" for help.
+
+fatrednews=# \db+
+                                  List of tablespaces
+    Name    |  Owner   | Location | Access privileges | Options |  Size  | Descriptio
+n 
+------------+----------+----------+-------------------+---------+--------+-----------
+--
+ pg_default | postgres |          |                   |         | 29 MB  | 
+ pg_global  | postgres |          |                   |         | 589 kB | 
+(2 rows)
+
+fatrednews=# \dt
+            List of relations
+ Schema |    Name     | Type  |  Owner   
+--------+-------------+-------+----------
+ public | table_sgk31 | table | postgres
+ public | table_yrp30 | table | postgres
+ public | table_yva58 | table | postgres
+(3 rows)
+
+fatrednews=# select * from table_sgk31
+fatrednews-# ;  
+ id |                    data                    
+----+--------------------------------------------
+  1 | Тестовые данные для sgk31
+(1 row)
+
+fatrednews=#    

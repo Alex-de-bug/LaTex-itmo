@@ -1,0 +1,176 @@
+#!/bin/bash
+# Скрипт для восстановления кластера PostgreSQL из бэкапа формата sql.gz
+# Учитывает разницу между Debian и Ubuntu и создает директории для tablespaces
+
+set -e  # Останавливать выполнение при ошибках
+
+# Переменные окружения
+PGDATA=${PGDATA:-"/var/lib/postgresql/data"}
+BACKUP_DIR="/backups"
+PORT=9193
+TBSP_BASE="/var/lib/postgresql"  # Базовая директория для табличных пространств
+
+# Массив с именами табличных пространств, которые нужно создать
+TABLESPACES=("yva58" "yrp30" "sgk31")
+
+# Проверка наличия PostgreSQL инструментов
+if ! command -v pg_ctl &> /dev/null; then
+    # Попытка найти бинарные файлы PostgreSQL в стандартных местах
+    PG_PATHS=(
+        "/usr/lib/postgresql/17/bin"
+        "/usr/lib/postgresql/*/bin"
+        "/usr/pgsql-17/bin"
+        "/usr/pgsql-*/bin"
+        "/opt/postgresql/17/bin"
+        "/opt/postgresql/*/bin"
+    )
+    
+    for pg_path in "${PG_PATHS[@]}"; do
+        # Проверяем пути с учетом возможных wildcards
+        for possible_path in $pg_path; do
+            if [ -d "$possible_path" ] && [ -x "$possible_path/pg_ctl" ]; then
+                echo "Найдены PostgreSQL бинарные файлы в $possible_path"
+                export PATH="$possible_path:$PATH"
+                break 2
+            fi
+        done
+    done
+    
+    # Повторная проверка после добавления путей
+    if ! command -v pg_ctl &> /dev/null; then
+        echo "Ошибка: не найдены бинарные файлы PostgreSQL. Укажите путь к ним в переменной PATH"
+        exit 1
+    fi
+fi
+
+# Проверка на наличие последнего бэкапа
+LATEST_BACKUP=$(ls -t ${BACKUP_DIR}/full_backup-*.sql.gz 2>/dev/null | head -1)
+if [ -z "$LATEST_BACKUP" ]; then
+    echo "Ошибка: не найдены файлы бэкапа в директории ${BACKUP_DIR}"
+    exit 1
+fi
+
+echo "Будет использован бэкап: $LATEST_BACKUP"
+
+# Определение доступных локалей в системе
+echo "Проверка доступных локалей в системе..."
+AVAILABLE_LOCALES=$(locale -a)
+if echo "$AVAILABLE_LOCALES" | grep -q "en_US.utf8"; then
+    REPLACEMENT_LOCALE="en_US.utf8"
+elif echo "$AVAILABLE_LOCALES" | grep -q "en_US.UTF-8"; then
+    REPLACEMENT_LOCALE="en_US.UTF-8"
+elif echo "$AVAILABLE_LOCALES" | grep -q "C.UTF-8"; then
+    REPLACEMENT_LOCALE="C.UTF-8"
+else
+    # Если ни одна из желаемых локалей не доступна, используем локаль C
+    REPLACEMENT_LOCALE="C"
+fi
+echo "Будет использована локаль: $REPLACEMENT_LOCALE"
+
+# Создание временного файла для предварительной модификации дампа
+TEMP_DUMP=$(mktemp)
+echo "Создание модифицированного дампа без ошибок локали..."
+
+# Обработка дампа для исправления проблемы с локалью и другими несовместимостями
+gunzip -c "$LATEST_BACKUP" | sed \
+    -e "s/LOCALE = 'en_US.utf8'/LOCALE = '$REPLACEMENT_LOCALE'/g" \
+    -e "s/LOCALE = 'ru_RU.utf8'/LOCALE = '$REPLACEMENT_LOCALE'/g" \
+    -e "s/LOCALE = 'en_US.UTF-8'/LOCALE = '$REPLACEMENT_LOCALE'/g" \
+    -e "s/LOCALE = 'ru_RU.UTF-8'/LOCALE = '$REPLACEMENT_LOCALE'/g" \
+    > "$TEMP_DUMP"
+
+echo "Создание директорий для табличных пространств..."
+for tbsp in "${TABLESPACES[@]}"; do
+    tbsp_dir="$TBSP_BASE/$tbsp"
+    echo "Создание директории: $tbsp_dir"
+    mkdir -p "$tbsp_dir"
+    chown -R postgres:postgres "$tbsp_dir"
+    chmod 700 "$tbsp_dir"
+done
+
+# Останавливаем PostgreSQL, если он запущен
+if pg_ctl -D "$PGDATA" status > /dev/null 2>&1; then
+    echo "Останавливаем PostgreSQL кластер..."
+    pg_ctl -D "$PGDATA" stop -m fast || {
+        echo "Предупреждение: не удалось остановить кластер. Возможно, он не был запущен."
+    }
+fi
+
+# Очистка PGDATA
+echo "Очистка PGDATA директории..."
+if [ -d "$PGDATA" ]; then
+    rm -rf "${PGDATA:?}"/* # Дополнительная защита от случайного удаления всего
+fi
+
+# Проверка наличия initdb
+if ! command -v initdb &> /dev/null; then
+    echo "Ошибка: команда initdb не найдена. Установите пакеты PostgreSQL."
+    exit 1
+fi
+
+# Инициализация нового кластера
+echo "Инициализация нового кластера..."
+# На Ubuntu используем локаль, которую мы определили выше
+initdb -D "$PGDATA" --locale="$REPLACEMENT_LOCALE" || {
+    echo "Ошибка при инициализации кластера PostgreSQL."
+    exit 1
+}
+
+# Настраиваем начальные параметры кластера
+echo "port = $PORT" >> "$PGDATA/postgresql.conf"
+echo "listen_addresses = '*'" >> "$PGDATA/postgresql.conf"
+echo "host all all all md5" >> "$PGDATA/pg_hba.conf"
+
+# Запуск PostgreSQL для восстановления данных
+echo "Запуск PostgreSQL для восстановления..."
+pg_ctl -D "$PGDATA" -o "-p $PORT" start || {
+    echo "Ошибка: не удалось запустить PostgreSQL"
+    # Проверяем журнал ошибок
+    if [ -f "$PGDATA/log/postgresql.log" ]; then
+        echo "Последние строки журнала ошибок:"
+        tail "$PGDATA/log/postgresql.log"
+    elif [ -d "$PGDATA/log" ]; then
+        echo "Последние строки журнала ошибок:"
+        find "$PGDATA/log" -type f -name "*.log" | xargs tail
+    fi
+    exit 1
+}
+
+# Проверка успешного запуска
+if ! pg_ctl -D "$PGDATA" status > /dev/null 2>&1; then
+    echo "Ошибка: не удалось запустить PostgreSQL"
+    exit 1
+fi
+
+# Восстановление данных из предварительно обработанного дампа
+echo "Восстановление данных из модифицированного бэкапа..."
+cat "$TEMP_DUMP" | psql -p $PORT -U postgres postgres || {
+    echo "Возникли ошибки при восстановлении данных из бэкапа."
+    echo "Продолжаем выполнение, так как некоторые ошибки могут быть некритичными..."
+}
+
+# Проверяем наличие базы данных fatrednews
+if ! psql -p $PORT -U postgres -lqt | cut -d \| -f 1 | grep -qw fatrednews; then
+    echo "База данных fatrednews не была создана. Создаем вручную..."
+    psql -p $PORT -U postgres -c "CREATE DATABASE fatrednews WITH TEMPLATE = template0 ENCODING = 'UTF8' LOCALE_PROVIDER = libc LOCALE = '$REPLACEMENT_LOCALE';"
+    psql -p $PORT -U postgres -c "ALTER DATABASE fatrednews OWNER TO postgres;"
+    echo "База данных fatrednews создана вручную."
+fi
+
+# Удаление временного файла
+rm -f "$TEMP_DUMP"
+
+echo "Ожидание завершения восстановления..."
+sleep 5
+
+# Перезапуск PostgreSQL для применения всех изменений
+echo "Перезапуск PostgreSQL для применения всех изменений..."
+pg_ctl -D "$PGDATA" restart || {
+    echo "Ошибка при перезапуске PostgreSQL после восстановления."
+    exit 1
+}
+
+echo "Восстановление завершено!"
+echo "Проверьте логи на наличие ошибок и убедитесь, что все базы данных созданы."
+echo "Список баз данных:"
+psql -p $PORT -U postgres -c "\l"

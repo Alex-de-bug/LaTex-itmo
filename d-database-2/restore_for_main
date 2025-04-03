@@ -1,0 +1,175 @@
+#!/bin/bash
+# Скрипт восстановления данных PostgreSQL с резервного сервера на основной сервер
+# Работает в случае, когда PGDATA необходимо разместить в новой директории
+
+set -e  # Останавливаем выполнение при ошибках
+
+# Конфигурационные параметры
+PG_USER="postgres"
+REMOTE_HOST="help"
+REMOTE_BACKUP_DIR="/backups"
+LOCAL_TEMP_DIR="/tmp/restore"
+NEW_PGDATA="/var/lib/postgresql/new_data"  # Новое расположение PGDATA
+PORT=9193
+LOG_FILE="/tmp/restore_log.txt"
+POSTGRES_CONF="/etc/postgresql/15/main/postgresql.conf"  # Путь к конфигурационному файлу PostgreSQL
+
+# Массив с именами табличных пространств для создания директорий
+TABLESPACES=("yva58" "yrp30" "sgk31")
+TBSP_BASE="/var/lib/postgresql"  # Базовая директория для табличных пространств
+
+echo "$(date): Начало восстановления PostgreSQL" | tee -a $LOG_FILE
+
+# Создание временной директории для скачивания резервных копий
+mkdir -p $LOCAL_TEMP_DIR
+
+# Получение последнего бэкапа с резервного сервера
+echo "$(date): Получение списка доступных бэкапов с резервного сервера..." | tee -a $LOG_FILE
+LATEST_BACKUP=$(ssh $REMOTE_HOST "ls -t $REMOTE_BACKUP_DIR/full_backup-*.sql.gz | head -1")
+LATEST_TABLESPACE_INFO=$(ssh $REMOTE_HOST "ls -t $REMOTE_BACKUP_DIR/tablespace_info-*.txt | head -1")
+
+if [ -z "$LATEST_BACKUP" ]; then
+    echo "$(date): Ошибка: не найдены файлы бэкапа на резервном сервере" | tee -a $LOG_FILE
+    exit 1
+fi
+
+BACKUP_FILENAME=$(basename "$LATEST_BACKUP")
+TABLESPACE_FILENAME=$(basename "$LATEST_TABLESPACE_INFO")
+
+echo "$(date): Найден последний бэкап: $BACKUP_FILENAME" | tee -a $LOG_FILE
+echo "$(date): Найдена информация о табличных пространствах: $TABLESPACE_FILENAME" | tee -a $LOG_FILE
+
+# Копирование бэкапа с резервного сервера
+echo "$(date): Копирование файлов бэкапа с резервного сервера..." | tee -a $LOG_FILE
+scp "$REMOTE_HOST:$LATEST_BACKUP" "$LOCAL_TEMP_DIR/$BACKUP_FILENAME"
+scp "$REMOTE_HOST:$LATEST_TABLESPACE_INFO" "$LOCAL_TEMP_DIR/$TABLESPACE_FILENAME"
+
+# Остановка PostgreSQL
+echo "$(date): Останавливаем сервер PostgreSQL..." | tee -a $LOG_FILE
+systemctl stop postgresql || {
+    echo "$(date): Предупреждение: не удалось остановить PostgreSQL через systemctl, пробуем pg_ctl..." | tee -a $LOG_FILE
+    su - postgres -c "pg_ctl stop -D /var/lib/postgresql/15/main -m fast" || {
+        echo "$(date): Предупреждение: не удалось остановить PostgreSQL. Проверьте, запущен ли он." | tee -a $LOG_FILE
+    }
+}
+
+# Создание новой директории для данных PostgreSQL
+echo "$(date): Создание новой директории для PGDATA: $NEW_PGDATA" | tee -a $LOG_FILE
+mkdir -p $NEW_PGDATA
+chown postgres:postgres $NEW_PGDATA
+chmod 700 $NEW_PGDATA
+
+# Создание директорий для табличных пространств
+echo "$(date): Создание директорий для табличных пространств..." | tee -a $LOG_FILE
+for tbsp in "${TABLESPACES[@]}"; do
+    tbsp_dir="$TBSP_BASE/$tbsp"
+    echo "$(date): Создание директории: $tbsp_dir" | tee -a $LOG_FILE
+    mkdir -p "$tbsp_dir"
+    chown postgres:postgres "$tbsp_dir"
+    chmod 700 "$tbsp_dir"
+done
+
+# Определение доступных локалей в системе
+echo "$(date): Проверка доступных локалей в системе..." | tee -a $LOG_FILE
+AVAILABLE_LOCALES=$(locale -a)
+if echo "$AVAILABLE_LOCALES" | grep -q "en_US.utf8"; then
+    LOCALE="en_US.utf8"
+elif echo "$AVAILABLE_LOCALES" | grep -q "en_US.UTF-8"; then
+    LOCALE="en_US.UTF-8"
+elif echo "$AVAILABLE_LOCALES" | grep -q "C.UTF-8"; then
+    LOCALE="C.UTF-8"
+else
+    LOCALE="C"
+fi
+echo "$(date): Будет использована локаль: $LOCALE" | tee -a $LOG_FILE
+
+# Создание временного файла для модификации дампа
+TEMP_DUMP=$(mktemp)
+echo "$(date): Подготовка модифицированного дампа..." | tee -a $LOG_FILE
+
+# Обработка дампа для исправления проблем с локалью
+gunzip -c "$LOCAL_TEMP_DIR/$BACKUP_FILENAME" | sed \
+    -e "s/LOCALE = 'en_US.utf8'/LOCALE = '$LOCALE'/g" \
+    -e "s/LOCALE = 'ru_RU.utf8'/LOCALE = '$LOCALE'/g" \
+    -e "s/LOCALE = 'en_US.UTF-8'/LOCALE = '$LOCALE'/g" \
+    -e "s/LOCALE = 'ru_RU.UTF-8'/LOCALE = '$LOCALE'/g" \
+    > "$TEMP_DUMP"
+
+# Инициализация нового кластера PostgreSQL
+echo "$(date): Инициализация нового кластера в $NEW_PGDATA..." | tee -a $LOG_FILE
+su - postgres -c "initdb -D $NEW_PGDATA --locale=$LOCALE" || {
+    echo "$(date): Ошибка при инициализации кластера PostgreSQL" | tee -a $LOG_FILE
+    exit 1
+}
+
+# Настройка конфигурации нового кластера
+echo "$(date): Настройка конфигурации нового кластера..." | tee -a $LOG_FILE
+echo "port = $PORT" >> "$NEW_PGDATA/postgresql.conf"
+echo "listen_addresses = '*'" >> "$NEW_PGDATA/postgresql.conf"
+echo "host all all all md5" >> "$NEW_PGDATA/pg_hba.conf"
+
+# Обновление конфигурационного файла PostgreSQL с новым путем к данным
+echo "$(date): Обновление основного конфигурационного файла с новым путем к данным..." | tee -a $LOG_FILE
+sed -i "s|data_directory = '.*'|data_directory = '$NEW_PGDATA'|" $POSTGRES_CONF
+
+# Запуск PostgreSQL с новыми настройками
+echo "$(date): Запуск PostgreSQL для восстановления данных..." | tee -a $LOG_FILE
+systemctl start postgresql || {
+    echo "$(date): Не удалось запустить PostgreSQL через systemctl, пробуем pg_ctl..." | tee -a $LOG_FILE
+    su - postgres -c "pg_ctl start -D $NEW_PGDATA -o '-p $PORT'" || {
+        echo "$(date): Ошибка при запуске PostgreSQL" | tee -a $LOG_FILE
+        exit 1
+    }
+}
+
+# Восстановление данных из модифицированного дампа
+echo "$(date): Восстановление данных из бэкапа..." | tee -a $LOG_FILE
+su - postgres -c "cat $TEMP_DUMP | psql -p $PORT" || {
+    echo "$(date): Возникли ошибки при восстановлении данных из бэкапа" | tee -a $LOG_FILE
+    echo "$(date): Продолжаем выполнение, так как некоторые ошибки могут быть некритичными..." | tee -a $LOG_FILE
+}
+
+# Проверка наличия базы данных fatrednews
+echo "$(date): Проверка наличия базы данных fatrednews..." | tee -a $LOG_FILE
+if ! su - postgres -c "psql -p $PORT -lqt" | cut -d \| -f 1 | grep -qw fatrednews; then
+    echo "$(date): База данных fatrednews не была создана. Создаем вручную..." | tee -a $LOG_FILE
+    su - postgres -c "psql -p $PORT -c \"CREATE DATABASE fatrednews WITH TEMPLATE = template0 ENCODING = 'UTF8' LOCALE_PROVIDER = libc LOCALE = '$LOCALE';\""
+    su - postgres -c "psql -p $PORT -c \"ALTER DATABASE fatrednews OWNER TO postgres;\""
+    echo "$(date): База данных fatrednews создана вручную." | tee -a $LOG_FILE
+fi
+
+# Удаление временных файлов
+rm -f "$TEMP_DUMP"
+echo "$(date): Временные файлы удалены" | tee -a $LOG_FILE
+
+# Перезапуск PostgreSQL для применения всех изменений
+echo "$(date): Перезапуск PostgreSQL для применения всех изменений..." | tee -a $LOG_FILE
+systemctl restart postgresql || {
+    echo "$(date): Не удалось перезапустить PostgreSQL через systemctl, пробуем pg_ctl..." | tee -a $LOG_FILE
+    su - postgres -c "pg_ctl restart -D $NEW_PGDATA -o '-p $PORT'" || {
+        echo "$(date): Ошибка при перезапуске PostgreSQL после восстановления" | tee -a $LOG_FILE
+        exit 1
+    }
+}
+
+# Проверка статуса PostgreSQL
+echo "$(date): Проверка статуса PostgreSQL..." | tee -a $LOG_FILE
+if systemctl is-active postgresql >/dev/null; then
+    echo "$(date): PostgreSQL успешно запущен" | tee -a $LOG_FILE
+else
+    echo "$(date): Проверка статуса запуска через pg_ctl..." | tee -a $LOG_FILE
+    if su - postgres -c "pg_ctl status -D $NEW_PGDATA" >/dev/null; then
+        echo "$(date): PostgreSQL успешно запущен через pg_ctl" | tee -a $LOG_FILE
+    else
+        echo "$(date): Ошибка: PostgreSQL не запущен" | tee -a $LOG_FILE
+        exit 1
+    fi
+fi
+
+# Вывод списка баз данных для проверки
+echo "$(date): Восстановление завершено! Список баз данных:" | tee -a $LOG_FILE
+su - postgres -c "psql -p $PORT -c '\l'" | tee -a $LOG_FILE
+
+echo "$(date): Процесс восстановления успешно завершен" | tee -a $LOG_FILE
+echo "$(date): PGDATA перемещен в новую директорию: $NEW_PGDATA" | tee -a $LOG_FILE
+echo "$(date): Рекомендуется проверить доступность данных и работоспособность приложений" | tee -a $LOG_FILE

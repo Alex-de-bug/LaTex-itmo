@@ -1,0 +1,41 @@
+#!/bin/bash
+
+PG_USER="postgres"
+BACKUP_DIR="/tmp/backups"
+REMOTE_HOST="help"
+REMOTE_DIR="/backups"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+FULL_BACKUP_FILE="full_backup-$TIMESTAMP.sql.gz"
+TABLESPACE_INFO_FILE="tablespace_info-$TIMESTAMP.txt"
+LOG_FILE="/tmp/backup_log.txt"
+
+echo "Starting backup: $TIMESTAMP" >> $LOG_FILE
+mkdir -p $BACKUP_DIR
+
+# Создание полного дампа базы данных
+echo "Creating database dump..." >> $LOG_FILE
+if pg_dumpall -p 9193 -U $PG_USER | gzip > $BACKUP_DIR/$FULL_BACKUP_FILE; then
+    echo "Backup created successfully: $FULL_BACKUP_FILE" >> $LOG_FILE
+else
+    echo "Backup failed" >> $LOG_FILE
+    exit 1
+fi
+
+# Сбор информации о табличных пространствах
+echo "Collecting tablespace information..." >> $LOG_FILE
+psql -p 9193 -U $PG_USER -c "SELECT spcname, pg_catalog.pg_tablespace_location(oid) FROM pg_catalog.pg_tablespace;" > $BACKUP_DIR/$TABLESPACE_INFO_FILE
+echo "Tablespace information collected" >> $LOG_FILE
+
+# Копирование файлов на резервный сервер
+echo "Transferring files to backup server..." >> $LOG_FILE
+if scp $BACKUP_DIR/$FULL_BACKUP_FILE $BACKUP_DIR/$TABLESPACE_INFO_FILE $REMOTE_HOST:$REMOTE_DIR/; then
+    echo "Backup transferred successfully" >> $LOG_FILE
+else
+    echo "Transfer failed" >> $LOG_FILE
+    exit 1
+fi
+
+# Очистка временных файлов
+rm $BACKUP_DIR/$FULL_BACKUP_FILE $BACKUP_DIR/$TABLESPACE_INFO_FILE
+
+echo "Backup script completed" >> $LOG_FILE
