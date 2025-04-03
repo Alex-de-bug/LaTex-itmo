@@ -122,9 +122,7 @@
 Создан узел для хранения бэкапов
 
 \begin{lstlisting}[caption={kitty}, label={lst:example}]
-    docker create --name postgres-backup -e POSTGRES_PASSWORD=root -p 9194:9193 postgres
-    docker network connect pg_backup_network postgres-backup
-    docker restart postgres-backup
+    docker create --name postgres-backup -p 9194:9193 ubuntu:latest tail -f /dev/null
 \end{lstlisting}
 
 Добавлены утилиты на резервном узле и на основном
@@ -164,56 +162,30 @@
 \begin{lstlisting}[caption={kitty}, label={lst:example}]
 #!/bin/bash
 
-PG_USER="postgres"
-BACKUP_DIR="/tmp/backups"
-REMOTE_HOST="postgres-backup"
-REMOTE_DIR="/backups"
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-BACKUP_FILE="full_backup-$TIMESTAMP.tar.gz"
-LOG_FILE="/tmp/backup_log.txt"
-PGDATA="/var/lib/postgresql/data"
+mkdir -p /tmp/backups
+mkdir -p "/tmp/backups/backup_$(date +%Y%m%d_%H%M%S)"
 
-echo "Starting backup: $TIMESTAMP" >> $LOG_FILE
+pg_dumpall -p 9193 -U postgres > "/tmp/backups/backup_$(date +%Y%m%d_%H%M%S)/full_backup.sql"
 
-mkdir -p $BACKUP_DIR
-BACKUP_TEMP_DIR="$BACKUP_DIR/backup_$TIMESTAMP"
-mkdir -p "$BACKUP_TEMP_DIR"
+cp "/var/lib/postgresql/data/postgresql.conf" "/tmp/backups/backup_$(date +%Y%m%d_%H%M%S)/"
+cp "/var/lib/postgresql/data/pg_hba.conf" "/tmp/backups/backup_$(date +%Y%m%d_%H%M%S)/"
 
-if pg_dumpall -p 9193 -U $PG_USER > "$BACKUP_TEMP_DIR/full_backup.sql"; then
-    echo "Database dump created successfully" >> $LOG_FILE
-else
-    echo "Database dump failed" >> $LOG_FILE
-    exit 1
-fi
+mkdir -p "/tmp/backups/backup_$(date +%Y%m%d_%H%M%S)/pg_tblspc"
+cp -r "/var/lib/postgresql/data/pg_tblspc/"* "/tmp/backups/backup_$(date +%Y%m%d_%H%M%S)/pg_tblspc/" 
 
-cp "$PGDATA/postgresql.conf" "$BACKUP_TEMP_DIR/" || echo "Failed to copy postgresql.conf" >> $LOG_FILE
-cp "$PGDATA/pg_hba.conf" "$BACKUP_TEMP_DIR/" || echo "Failed to copy pg_hba.conf" >> $LOG_FILE
-
-mkdir -p "$BACKUP_TEMP_DIR/pg_tblspc"
-cp -r "$PGDATA/pg_tblspc/"* "$BACKUP_TEMP_DIR/pg_tblspc/" 2>/dev/null || echo "No tablespaces found or failed to copy" >> $LOG_FILE
-
-
-for tblspc in "$PGDATA/pg_tblspc/"*; do
+for tblspc in "/var/lib/postgresql/data/pg_tblspc/"*; do
     if [ -L "$tblspc" ]; then
-        REAL_PATH=$(readlink -f "$tblspc")
-        mkdir -p "$BACKUP_TEMP_DIR/tblspc_data/$(basename "$tblspc")"
-        cp -r "$REAL_PATH/"* "$BACKUP_TEMP_DIR/tblspc_data/$(basename "$tblspc")/"
+        mkdir -p "/tmp/backups/backup_$(date +%Y%m%d_%H%M%S)/tblspc_data/$(basename "$tblspc")"
+        cp -r "$(readlink -f "$tblspc")/"* "/tmp/backups/backup_$(date +%Y%m%d_%H%M%S)/tblspc_data/$(basename "$tblspc")/"
     fi
 done
 
-tar -czf "$BACKUP_DIR/$BACKUP_FILE" -C "$BACKUP_TEMP_DIR" .
+tar -czf "/tmp/backups/full_backup-$(date +%Y%m%d_%H%M%S).tar.gz" -C "/tmp/backups/backup_$(date +%Y%m%d_%H%M%S)" .
 
-if scp "$BACKUP_DIR/$BACKUP_FILE" "$REMOTE_HOST:$REMOTE_DIR/"; then
-    echo "Backup transferred successfully" >> $LOG_FILE
-else
-    echo "Transfer failed" >> $LOG_FILE
-    exit 1
-fi
+scp "/tmp/backups/full_backup-$(date +%Y%m%d_%H%M%S).tar.gz" "postgres-backup:/backups/"
 
-rm -rf "$BACKUP_TEMP_DIR"
-rm "$BACKUP_DIR/$BACKUP_FILE"
-
-echo "Backup script completed" >> $LOG_FILE
+rm -rf "/tmp/backups/backup_$(date +%Y%m%d_%H%M%S)"
+rm "/tmp/backups/full_backup-$(date +%Y%m%d_%H%M%S).tar.gz"    
 \end{lstlisting}
 
 Сама настройка для автоматизации на основном хосте
@@ -301,7 +273,7 @@ BACKUP_DIR="/backups"
 RESTORE_TEMP_DIR="/tmp/restore_temp"
 PGDATA="/var/lib/postgresql/data"
 LOG_FILE="/tmp/restore_log.txt"
-BACKUP_FILE="$1"  
+BACKUP_FILE="$1"
 
 if [ -z "$BACKUP_FILE" ]; then
     echo "Error: Backup file not specified. Usage: $0 /backups/full_backup-YYYYMMDD_HHMMSS.tar.gz" >> $LOG_FILE
@@ -310,26 +282,21 @@ fi
 
 echo "Starting restore: $(date +%Y%m%d_%H%M%S)" >> $LOG_FILE
 
-if pg_ctl -D "$PGDATA" status > /dev/null 2>&1; then
-    pg_ctl -D "$PGDATA" stop -m fast || {
-        echo "Failed to stop PostgreSQL" >> $LOG_FILE
-        exit 1
-    }
-fi
+pg_ctl stop -D "$PGDATA/"  
 
 rm -rf "$PGDATA"/* || {
     echo "Failed to clean PGDATA" >> $LOG_FILE
     exit 1
 }
 
+initdb -D "$PGDATA"
+pg_ctl start
+
 mkdir -p "$RESTORE_TEMP_DIR"
-tar -xzf "$BACKUP_FILE" -C "$RESTORE_TEMP_DIR" || {
-    echo "Failed to extract backup" >> $LOG_FILE
+gunzip -c "$BACKUP_FILE" > "$RESTORE_TEMP_DIR/$(basename "$BACKUP_FILE" .gz)" || {
+    echo "Failed to extract backup" >> "$LOG_FILE"
     exit 1
 }
-
-cp "$RESTORE_TEMP_DIR/postgresql.conf" "$PGDATA/" || echo "Failed to restore postgresql.conf" >> $LOG_FILE
-cp "$RESTORE_TEMP_DIR/pg_hba.conf" "$PGDATA/" || echo "Failed to restore pg_hba.conf" >> $LOG_FILE
 
 for tblspc in "$RESTORE_TEMP_DIR/pg_tblspc/"*; do
     if [ -f "$tblspc" ]; then
@@ -348,15 +315,16 @@ if [ -d "$RESTORE_TEMP_DIR/tblspc_data" ]; then
     done
 fi
 
-pg_ctl -D "$PGDATA" start || {
-    echo "Failed to start PostgreSQL" >> $LOG_FILE
-    exit 1
-}
+cp "$RESTORE_TEMP_DIR/postgresql.conf" "$PGDATA/" || echo "Failed to restore postgresql.conf" >> $LOG_FILE
+cp "$RESTORE_TEMP_DIR/pg_hba.conf" "$PGDATA/" || echo "Failed to restore pg_hba.conf" >> $LOG_FILE
+
 
 psql -U $PG_USER -f "$RESTORE_TEMP_DIR/full_backup.sql" || {
     echo "Failed to restore database" >> $LOG_FILE
     exit 1
 }
+
+pg_ctl restart
 
 rm -rf "$RESTORE_TEMP_DIR"
 
