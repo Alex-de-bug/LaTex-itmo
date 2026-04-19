@@ -1,0 +1,13 @@
+\xpg@aux {}{russian}
+\contentsline {section}{\MakeUppercase []{СПИСОК СОКРАЩЕНИЙ И УСЛОВНЫХ ОБОЗНАЧЕНИЙ}}{5}{section*.2}%
+\contentsline {section}{\MakeUppercase []{ТЕРМИНЫ И ОПРЕДЕЛЕНИЯ}}{6}{section*.3}%
+\contentsline {section}{\MakeUppercase []{ВВЕДЕНИЕ}}{7}{section*.4}%
+\contentsline {section}{\numberline {1}НАЗВАНИЕ РАЗДЕЛА}{7}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Название подраздела}{7}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}Название подраздела с таблицей и формулой}{7}{subsection.1.2}%
+\contentsline {section}{\numberline {2}НАЗВАНИЕ РАЗДЕЛА 2}{8}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Название подраздела}{8}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Название подраздела}{8}{subsection.2.2}%
+\contentsline {section}{\MakeUppercase []{ЗАКЛЮЧЕНИЕ}}{9}{section*.7}%
+\contentsline {section}{\MakeUppercase []{СПИСОК ИСПОЛЬЗОВАННЫХ ИСТОЧНИКОВ}}{10}{section*.8}%
+\contentsline {section}{ПРИЛОЖЕНИЕ~А (Наименование приложения)}{11}{section*.9}%

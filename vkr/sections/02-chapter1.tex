@@ -1,0 +1,559 @@
+\section{ОСНОВНАЯ ЧАСТЬ}
+
+
+
+\subsection{Утилита для сбора логов по camunda events}
+
+\subsubsection{Задача}
+\begin{itemize}
+  \item Сервис реализует API для получения истории событий Camunda за произвольный временной диапазон с параметрами startTime и endTime, передаваемыми через URI.
+  \item Возвращаемые данные включают только активности типов: service task, user task, exclusive gateway, send task, start event, script task, inclusive gateway, intermediate message throw event.
+  \item Формат выгрузки данных — .xlsx, со столбцами Activity ID, Activity Name, Start Time, End Time, Duration (ms), Activity Type.
+  \item Сбор истории выполняется без заметного влияния на производительность основной системы (разница в средней загрузке CPU не более 5\%).
+  \item Ошибки при запросе возвращают корректный HTTP-ответ с кодами: 400 (некорректные параметры), 500 (внутренняя ошибка).
+
+\end{itemize}
+
+\subsubsection{Аналитика задачи}
+
+Задача была получена и начата на одном из обсуждений текущих приоритетов команды 16.02.2026.
+Даннуя задачу начали обсуждать в предверии нагрузочного тестирования всей системы, для сверки метрик,
+которые были поставлены в документации проекта. Так как аудит должен был включать проверку каждого сервиса системы, 
+то требовалось проверить, не является ли система бизнес процессов узким местом системы. После получения задачи, я связался с аналитиком, который 
+мне более детально объяснил, что требуется от механизма сбора данных, а если конкретнее, то нужно было собрать все 
+активности для отслеживания токена процесса следующего вида: service task, user task, exclusive gateway, send task, start event,
+script task, inclusive gateway, intermediate message throw event, так же требовалось дополнительная информация о номере процесса, его имени, времени начала, 
+времени конца, затраченного времени на выполенения конкретной активности и её тип. 
+Получение этой информации аналитик попросил реализовать интерфейс ввиде простых запросов по протоколу передачи гипертекста. Для получения данных был предложен следующий формат запроса:
+
+\begin{lstlisting}[
+  caption={Запрос лога активности},
+  label={lst:activity-log}
+]
+exmaple.ru/api/activity-log?startTime=2026-06-11T11:00:00&endTime=2026-06-11T14:28:00
+\end{lstlisting}
+
+Данный запрос включает в себя параметры, который решено передавать через URI. 
+Параметры включают: время с которого стоит делать сбор активностей и время окончания сбора данных.
+Указание временного промежутка должно помочь аналитикам при работе с несколькими процессами, так как кол-во строк истории часто измеряется в сотнях тысяч. 
+Так же это позволит делать срезы, наиболее интересные для исследования в точках зависания, чтобы просмотреть, какие конкретно активности исполнялись.
+Формат для представления данных был выбран ввиде exel-отчёта.
+
+\subsubsection{Заведение задачи в системе трекинга}
+После перевода задачи аналитики в статус "Выполнена". 
+Я ещё раз ознакомился с аналитикой и создал задачу для разработки, прикрепил в "Относится к" задачу аналитики. 
+Проставил срок для выполнения с 16.02.2026 по 05.03.2026, в этот срок так же закладываю время на тестирование нового механизма. 
+Задаче были назначены следующие метки -- бизнес-логика, задача и проставлена веха, в которую попадёт задача. 
+Критичность выставлена "Средний", так как задача не блокирует другие задачи и не является багом.
+После описания задачи, я перевёл её в статус "В процессе".
+
+\subsubsection{Исследование текущего интерфейса системы бизнес процессов}
+Для реализации задачи нужно изначально изучить интерфейс, 
+который предоставляет нам система бизнес процессов для запроса истории. На официальном сайте с описанием интерфейсов [1] я нашёл нужный мне метод для сбора истории. 
+Данный метод поддерживает фильтрацию по временному промежутку с помощью параметров запроса, 
+что полностью соответствует требованию аналитика о возможности сбора активностей за определённый временной интервал. 
+Кроме того, метод возвращает следующие поля для каждой активности:
+\begin{enumerate}
+  \item id — уникальный идентификатор экземпляра активности;
+  \item activityId — идентификатор активности;
+  \item activityName — имя активности;
+  \item activityType — тип активности;
+  \item processDefinitionId — идентификатор определения процесса;
+  \item processInstanceId — номер экземпляра процесса;
+  \item startTime — время начала выполнения активности;
+  \item endTime — время окончания выполнения активности;
+  \item duration — затраченное время в миллисекундах.
+\end{enumerate}
+Данные поля нам подходят по бизнес требованиям. Так как мы используем клиентскую библиотеку для взаимодействия с отдельными модулем камунды, то имеет смысл воспользоваться инверсией контроля.
+Сам сервис мы будет использовать при помощи внедрения зависимостей через конструктор при помощи аннотирования класса для снижения прогретого кода. У клиента есть несколько методов, которые подходят нам, но я выбираю метод, где на вход возможны 3 параметра: номер страницы для пагинации, размер страницы и объект с параметрами фильтрации запроса.
+Данный метод позволяет нам сразу передать в теле запроса объект с фильтрами, включая параметры $startedAfter$ и $startedBefore$. Возвращает он список объектов, содержащих все необходимые поля: идентификатор активности, её тип, время начала и окончания, длительность выполнения в миллисекундах, а также идентификаторы экземпляра процесса и определения процесса. 
+Всё это даёт возможность собирать активности только за указанный аналитиком период времени, что было одним из ключевых требований задачи.
+Выбранный метод использует POST-запрос. Параметры временного диапазона передаются в теле запроса, а не в URL.
+
+\subsubsection{Контроллер}
+
+Реализацию задачи я решил начать сверху вниз, начиная с интерфейса у бизнес логики. 
+На проекте используются стандартные для фреймворка контроллеры, запрос в которые приходит из специального сервлета, который находит конкретный конроллер и метод по заданному пути.
+Разработка контроллера началась с определения точки входа. Сам тип запроса выбран как $GET$, так как операция не изменяет данные на уровне сервиса, а только возвращает их, это соответствует семантике типа метода.
+Для поддержки временной фильтрации в контроллер были добавлены необязательные параметры: время начала и время конца. 
+Они принимаются в формате в стандартном ISO-формате, как это было заданно в аналитической задаче. 
+Оба параметра помечены как необязательные, чтобы при необходимости можно было выгрузить полный журнал без временных ограничений.
+Добавил валидацию для ошибочных запросов, которая учитывает:
+\begin{enumerate}
+  \item начальное время не может быть позже конечного;
+  \item начальное время не может быть в будущем;
+  \item конечное время не может быть в будущем.
+\end{enumerate}
+При нарушении любого из этих условий будет ответ с кодом 400, сообщая клиенту о неверно сформированном запросе.
+В контроллер добавил логирование для отслеживания факта обращения к эндпоинту, а также логирование ошибок и предупреждений. 
+Это позволяет в дальнейшем анализировать работу механизма.
+Контроллер не занимается непосредственно сбором данных, поэтому я решил делегировать эту работу сервису, вызывая его метод, так как это соответствует принципу разделения ответственности.
+После получения файла от сервиса контроллер проверяет, не равен ли результат пустому значению. 
+Если данных за указанный период не найдено, возвращается ответ с кодом 404. 
+Если файл успешно создан, контроллер формирует имя файла с текущей датой и временем, 
+чтобы каждый скачанный файл имел уникальное имя и не перезаписывал предыдущие.
+Для возврата файла контроллер использует потоковый режим, который позволяет не загружать его полностью в память. 
+Это важно при работе с большими объёмами данных. В заголовки ответа добавляется тип для Excel-файлов. Код ответа — 200.
+В случае возникновения ошибки при генерации файла (например, проблем с доступом к Camunda) контроллер возвращает ответ с кодом 500, 
+логируя при этом детали ошибки для последующего анализа.
+По требованиям ревью, я сделал документацию контроллеру с помощью аннотаций Swagger. 
+В описании указаны возможные коды ответов, форматы параметров и описание работы метода.
+Сам код контроллера прикреплён в \textbf{Приложении А}.
+
+\subsubsection{Сервис}
+
+Для реализации самой выгрузки данных и формировании отчёта, 
+был разработан сервис. Его основное назначение -- собрать данные об активностях за заданный промежуток времени и 
+сформировать exel-файл с этими данными. Так же дополнительно из конфигурации были вытянуты человекочитаемые совпадения из бизнес процесса для сопоставления с 
+уникальными названиями активностей. При запуске сервиса, модуль подгружает человекочитаемые названия из файла, который лежит в classpath. 
+Загрузка выполняется однократно при помощи введения некоторой аннотации $PostConstruct$. 
+Само местоположение файла можно задавать через конфигурационный параметр для гибкости использования.
+Предзагрузка сделана для создания закешированного вида файла, чтобы ускорить работу с сопоставлением имён.
+Для получения исторических записей, я использовал клиентскую библиотеку, внедрение зависимостеи я сделал посредством аннотации $RequiredArgsConstructor$.
+Я сделал создание транспортного объекта для запроса, куда включил фильтры, которые были переданы: $startedAfter$ и $startedBefore$.
+Если параметры не переданы, фильтры не применяются, и выгружаются все доступные активности.
+Из полученного от Camunda списка активностей отфильтровываются только те, у которых заполнено поле $endTime$. 
+Я сделал такую фильтрацию так как незавершённые активности не имеют полной информации о времени выполнения и длительности, что делает их бесполезными для анализа.
+Так же я предусмотрел излишнюю работу и если список пустой, то пользователю вернётся информативный ответ с ошибкой, что за заданный промежуток ничего не найдено.
+Для формирования выходного файла я использовал библиотекту $Apache POI$, которая позволила мне генерировать файлы нужного формата.
+Сервис создаёт новую книгу, добаляет туда лист, формирует строку заголовков и далее заполняет таблицу.
+При заполнении каждой строки я выполняю некоторые преобразования: 
+\begin{enumerate}
+  \item Даты startTime и endTime форматируются в человекочитаемый вид.
+  \item Технические идентификаторы активностей преобразуются в понятные названия, который обращается к загруженному при старте справочнику.
+  \item Для родительских активностей также извлекаются их названия и схемы.
+\end{enumerate}
+При формировании файла они сохраняются во временную директорию, это я сделал чтобы
+не оставлять файлы на диске после завершения запроса пользователя. При возникновении ошибок сервис должен вывести тело ошибки и выбрасывать исключение, которое далее обработается на уровне контроллера.
+После записи файла книга закрывается, а поток вывода завершается с помощью конструкции $ try-with-resources$, что так же будет гарантировать освобождение системных ресурсов.
+
+Файл с человекочитаемыми названиями имеет следующую структуру:
+
+\begin{lstlisting}[
+  caption={Файл с человекочитаемыми названиями},
+  label={lst:activity-log}
+]
+{
+  "ServiceTask_1": {
+    "name": "Проверка данных",
+    "schema": "Проверка входных параметров"
+  },
+  "UserTask_1": {
+    "name": "Согласование",
+    "schema": "Утверждение заявки руководителем"
+  }
+}
+\end{lstlisting}
+Сам код сервиса можно увидет в \textbf{Приложении А}.
+
+\subsubsection{Затронутое API}
+
+В ходе реализации я задействовал следующие компоненты REST API Camunda:
+\begin{itemize}
+\item POST $/history/activity-instance$ — метод, выполняющий запрос исторических записей активностей.
+В теле запроса я передаю параметры фильтрации:
+$startedAfter$ и $startedBefore$.
+
+\item Клиентская библиотека Camunda 7 Java Client — предоставляет обёртку $HistoricActivityInstanceApi$,
+которая инкапсулирует формирование HTTP-запроса и десериализацию ответа.
+\end{itemize}
+
+\subsubsection{Допустимые ошибки}
+
+В процессе сбора логов возможны некоторые ошибки, 
+обработку которых я предусморел и представил в Таблице 1.1. 
+
+\begin{table}[H]
+  \centering
+  \caption{Коды ответов и их значения}
+  \begin{tabular}{|p{3cm}|p{10cm}|}
+    \hline
+    \textbf{Код} & \textbf{Ситуация} \\
+    \hline
+    400 & $startTime$ позже $endTime$; любая из дат находится в будущем; неверный формат даты. \\
+    \hline
+    404 & За указанный период не найдено ни одной завершённой активности (список пуст после фильтрации). \\
+    \hline
+    500 & Ошибка подключения к Camunda; ошибка чтения JSON-файла с маппингом имён; ошибка записи временного Excel-файла; необработанное исключение API. \\
+    \hline
+  \end{tabular}
+\end{table}
+
+\subsubsection{Замер потребления ресурсов при нагрузке}
+
+Замер я проводил на специальном контуре, где были созданы процессы. Один из процессов я запустил вручную, 
+чтобы начала щаписываться история. Сам процесс был запущен в 22:49 (время специфично для сервера и не совпадает с реальным $GMT+3$).
+После завершением процесса в 22:53, я сделал запрос на сбор истории в 22:54.
+\begin{lstlisting}[
+  caption={Запрос лога активности},
+  label={lst:activity-log}
+]
+gpz.prod.ru/api/activity-log?startTime=2026-02-22T15:00:00&endTime=2026-02-27T18:00:00
+\end{lstlisting}
+
+Для рассмотрения нагрузки я воспользовался готовым инструментом сбора метрик по $CPU Usage$ и $Memory Usage$.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[
+    width=\linewidth,
+    height=0.9\textheight,
+    keepaspectratio
+  ]{\detokenize{artifacts/back-cpu.png}}
+  \caption{Скриншот графика загрузки процессора сервиса со сбором активностей}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[
+    width=\linewidth,
+    height=0.9\textheight,
+    keepaspectratio
+  ]{\detokenize{artifacts/back-mem.png}}
+  \caption{Скриншот графика загрузки памяти сервиса со сбором активностей}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[
+    width=\linewidth,
+    height=0.9\textheight,
+    keepaspectratio
+  ]{\detokenize{artifacts/camunda-cpu.png}}
+  \caption{Скриншот графика загрузки процессора сервиса с camunda}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[
+    width=\linewidth,
+    height=0.9\textheight,
+    keepaspectratio
+  ]{\detokenize{artifacts/camunda-mem.png}}
+  \caption{Скриншот графика загрузки памяти сервиса с camunda}
+\end{figure}
+
+Данная утилита не оказывает значимое влияние на загрузку системы,
+поэтому её можно безопасно использовать для сбора и аналитики данных.
+
+\subsubsection{Использованные технологии}
+
+При реализации были использованы следующие технологии и библиотеки:
+
+\begin{enumerate}
+  \item Java 17 — язык реализации.
+  \item Spring Boot 2.7 — фреймворк для создания REST-контроллера и внедрения зависимостей.
+  \item Camunda 7 Java Client — для вызова исторического API.
+  \item Apache POI (XSSFWorkbook) — для генерации Excel-файлов.
+  \item Jackson — для парсинга JSON-файла с человекочитаемыми именами активностей.
+  \item Swagger — для документирования эндпоинта.
+  \item SLF4J — для логирования.
+\end{enumerate}
+
+\subsubsection{Почему были выбраны технологии}
+
+Некоторые технологии уже использовались на проекте, поэтому было решено взять из для избежания добавления новых зависимостей в проект. Технологии которые уже были использованы -- протестированы на продуктивных стендах.
+
+\begin{itemize}
+  \item Apache POI выбран, так как он является стандартом для работы с Excel в Java, поддерживает потоковую запись больших файлов.
+
+  \item Camunda 7 Java Client использовался вместо прямых HTTP-вызовов, так как клиент поддерживается официальным сообществом инструмента.
+
+  \item Jackson взят как стандартный инструмент Spring Boot — не требует дополнительных зависимостей.
+
+  \item Swagger — является достаточно легковестным расширением OpenAPI для документирования кода.
+\end{itemize}
+
+\subsubsection{Вывод}
+
+Сделан сервис, который реализует API для получения истории событий Camunda за произвольный временной диапазон с параметрами startTime и endTime, передаваемыми через URI. Согласно требованиям -- возвращаемые данные включают активности типов: service task, user task, exclusive gateway, send task, start event, script task, inclusive gateway, intermediate message throw event.
+Сделан запрашиваемый формат выгрузки — .xlsx, со столбцами Activity ID, Activity Name, Start Time, End Time, Duration (ms), Activity Type.
+После разработки был проведён замер, который показал, что сбор истории выполняется без заметного влияния на производительность основной системы и не загружает процессор более чем на 5%.
+Ошибки при запросе возвращают корректный HTTP-ответ с кодами: 400 (некорректные параметры), 500 (внутренняя ошибка).
+
+
+% Изначально задача была затрона на одном из собраний команды 16.02.2026. 
+% Где происходил опрос разработчиков по прогрессу их задачек, далее предлагались задачи на выполнение, 
+% но так как задача входит в мои задачи практики, то мне её выдали на разработку.
+% Сама задача изначально вызникла из проблемы, в одном из сервисов был метод, 
+% который каждые 0.5 секунды делал опрос истории камунды
+
+% поменяй название некоторых переменных, чтобы этот код был обезличен
+% @Scope(value = ConfigurableBeanFactory.SCOPE_SINGLETON)
+% @Service
+% @RequiredArgsConstructor
+% public class ScheduledBpmnHistoryServiceBean {
+
+
+%   private final AtomicBoolean isRunning = new AtomicBoolean();
+
+
+%   private final WorkflowStepInstanceService workflowStepInstanceFacade;
+
+
+%   private final WorkflowObjectService workflowObjectFacade;
+
+
+%   private final CamundaAvailable camundaAvailable;
+%   @Lazy
+%   private final CamundaTaskFetchUtilServiceBean camundaTaskFetchUtilService;
+
+
+%   @Scheduled(fixedDelay = 500)
+%   //@NuxeoClientThreadAuthorization
+%   protected void readHistory() {
+%     if (Boolean.TRUE.equals(camundaAvailable.isActive()) && isRunning.compareAndSet(false, true)) {
+%       try {
+%         Date latestRequestedDate = workflowStepInstanceFacade.latestRequestedDate();
+%         latestRequestedDate = camundaTaskFetchUtilService.fixStartedAfter(latestRequestedDate);
+%         camundaTaskFetchUtilService.processHistoricActivityInstances(latestRequestedDate,
+%             null);
+%         camundaTaskFetchUtilService.processUpcomingTaskInstances(latestRequestedDate, null);
+%         Date latestEndDate = workflowObjectFacade.latestEndDate();
+
+
+%         while (camundaTaskFetchUtilService.processHistoricProcessInstances(latestEndDate)) {
+%           latestEndDate = workflowObjectFacade.latestEndDate();
+%         }
+%       } finally {
+%         isRunning.compareAndSet(true, false);
+%       }
+%     }
+%   }
+% }
+
+
+%   public Date fixStartedAfter(Date startedAfter) {
+%     lastDiffUpdate.ifPresentOrElse(lastDiff -> {
+%       this.startedAfterDiff.setTime(
+%           startedAfter.getTime() - (startedAfter.getTime() - lastDiff.getTime()));
+%       this.lastDiffUpdate = Optional.of(startedAfter);
+%     }, () -> {
+%       this.lastDiffUpdate = Optional.ofNullable(startedAfter);
+%       this.startedAfterDiff = startedAfter;
+%     });
+%     return startedAfterDiff;
+%   }
+
+% public Date latestRequestedDate() {
+%     var w = latestByAttribute(WorkflowStepInstance.REQUESTED_DATE);
+%     return w != null ? w.getRequestedDate().orElse(null) : null;
+%   }
+
+% public void processHistoricActivityInstances(final Date startedAfter,
+%       final Date startedBefore) {
+%     HistoricActivityInstanceQueryDto query = new HistoricActivityInstanceQueryDto();
+%     Optional.ofNullable(startedAfter).ifPresent(query::setFinishedAfter);
+%     Optional.ofNullable(startedBefore).ifPresent(query::setFinishedBefore);
+
+
+%     Map<WorkflowObject, String> history = new HashMap<>();
+%     try {
+%       var intermediateHistory = historicActivityRestService.queryHistoricActivityInstances(
+%               null, null, query).stream()
+%           .filter(Objects::nonNull)
+%           .filter(h -> h.getEndTime() != null)
+%           .map(HistoricActivityInstanceDto::getProcessInstanceId).collect(Collectors.toSet())
+%           .stream().map(id -> {
+%             try {
+%               return processInstanceRestService.getActivityInstanceTree(id);
+%             } catch (ApiException e) {
+%               return null;
+%             }
+%           })
+%           .filter(Objects::nonNull)
+%           .map(ActivityInstanceDto::getChildActivityInstances).filter(a -> !a.isEmpty())
+%           .map(a -> a.get(0)).filter(this::filter).map(a -> Pair.of(a,
+%               workflowObjectFacade.findBaseByProcessInstanceId(a.getProcessInstanceId())))
+%           .filter(p -> p.getB().isPresent())
+%           .map(p -> workflowObjectFacade.createWorkflowObjectFromNuxeo(p.getB().get())
+%               .thenApply(f -> Pair.of(p.getA(), f)))
+%           .toList();
+%       try {
+%         CompletableFuture.allOf(intermediateHistory.toArray(CompletableFuture[]::new)).get();
+%       } catch (InterruptedException e2) {
+%         LOGGER.error("", e2);
+%         Thread.currentThread().interrupt();
+%       } catch (ExecutionException | CompletionException | CancellationException e) {
+%         LOGGER.error("", e);
+%       }
+%       history = intermediateHistory.stream().map(CompletableFuture::join)
+%           .filter(p -> !Objects.equals(p.getA().getActivityId(), p.getB().getWorkflowStatus()))
+%           .collect(Collectors.toMap(Pair::getB,
+%               p -> getPrefix(p.getA().getActivityType()) + convertId(p.getA().getActivityId())))
+%           .entrySet().stream().filter(e -> !e.getKey().getWorkflowStatus().equals(e.getValue()))
+%           .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+%     } catch (ApiException e) {
+%       LOGGER.error(e.getResponseBody(), e);
+%     }
+
+
+%     history.forEach((workflowObject, state) -> {
+%       var changed = new AutoHolder<>(workflowObject::getInput);
+%       changed.getValue().setWorkflowTransition(state);
+%       if (changed.isPresent()) {
+%         workflowObjectSubscriberBean.workflowPending(
+%             new WorkflowPending(workflowObject, state, ""));
+%       }
+%     });
+%   }
+
+% public void processUpcomingTaskInstances(final Date startedAfter, final Date startedBefore) {
+%     processPendingSteps();
+
+
+%     HistoricTaskInstanceQueryDto query = new HistoricTaskInstanceQueryDto();
+%     query.setUnfinished(true);
+%     query.setUnassigned(true);
+%     Optional.ofNullable(startedAfter).ifPresent(query::setStartedAfter);
+%     Optional.ofNullable(startedBefore).ifPresent(query::setStartedBefore);
+
+
+%     List<HistoricTaskInstanceDto> historicTaskInstances;
+%     try {
+%       historicTaskInstances = historicTaskInstanceRestService.queryHistoricTaskInstances(
+%           null, null, query);
+%     } catch (ApiException e2) {
+%       LOGGER.error(e2.getResponseBody(), e2);
+%       return;
+%     }
+%     Map<String, List<HistoricTaskInstanceDto>> processInstanceId2history = historicTaskInstances
+%         .stream().collect(Collectors.groupingBy(HistoricTaskInstanceDto::getProcessInstanceId));
+%     Map<String, CompletableFuture<WorkflowObject>> processInstanceId2WorkflowObject =
+%         workflowObjectFacade.findByProcessInstanceIds(processInstanceId2history.keySet());
+%     try {
+%       CompletableFuture.allOf(processInstanceId2history.entrySet().stream().map(
+%           e -> Optional.ofNullable(processInstanceId2WorkflowObject.get(e.getKey()))
+%               .map(f -> f.thenApply(Optional::of))
+%               .orElseGet(() -> ThreadScopeHelper.thenApplyAsync(
+%                   camundaTaskDataBean.getTaskVariableValues(
+%                       e.getValue().stream().findAny().orElseThrow().getId())
+%                       .thenCompose(v -> v.entrySet().stream()
+%                           .filter(ev -> ev.getKey().endsWith("__common__id"))
+%                           .map(Map.Entry::getValue).map(String.class::cast).findFirst()
+%                           .map(workflowObjectFacade::findByDataObjectIdAsync)
+%                           .orElseGet(() -> CompletableFuture.completedFuture(
+%                               Optional.<WorkflowObject>empty()))),
+%                   wo -> wo.map(
+%                       w -> {
+%                         LOGGER.info("candidate orphan process instance id=" + e.getKey());
+%                         return w;
+%                       })
+%                       .or(() -> {
+%                         LOGGER.error("delete orphan process instance id=" + e.getKey());
+%                         // ProcessInstanceResource processInstance = processInstanceRestService.get(
+%                         // ProcessInstanceRestService.PATH + "/" + e.getKey());
+%                         // processInstance.deleteProcessInstance(false, false, false);
+%                         try {
+%                           processInstanceRestService.deleteProcessInstance(e.getKey(), false, false,
+%                               false, false);
+%                         } catch (ApiException e1) {
+%                           LOGGER.error(e1.getResponseBody(), e1);
+%                         }
+%                         return Optional.empty();
+%                       })))
+%               .thenCompose(wo -> wo
+%                   .map(workflowObject -> CompletableFuture.allOf(e.getValue().stream()
+%                       .map(historicDto -> {
+%                         var workflowStepTemplate = workflowObject.getWorkflowType()
+%                             .getWorkflowStepTemplates().stream()
+%                             .filter(wst -> wst.getTaskDefKey().equals(
+%                                 historicDto.getTaskDefinitionKey()))
+%                             .findAny();
+%                         if (workflowStepTemplate.isPresent()
+%                             && Bpmn.Lifecycle.STARTING_PROCESS.equals(
+%                                 workflowObject.getWorkflowStatus())) {
+%                           putToPendingSteps(historicDto.getId(),
+%                               workflowObject.getWorkflowObjectID(),
+%                               workflowStepTemplate.get());
+%                           return Optional.<CompletableFuture<Boolean>>empty();
+%                         } else {
+%                           return Optional.of(bpmnWorkflowStepUtilityService.getObject()
+%                               .processIncomingTask(e.getKey(), workflowObject, historicDto,
+%                                   workflowStepTemplate));
+%                         }
+%                       })
+%                       .filter(Optional::isPresent)
+%                       .map(Optional::get).toArray(CompletableFuture[]::new)))
+%                   .orElseGet(() -> CompletableFuture.completedFuture(null))))
+%           .toArray(CompletableFuture[]::new)).get();
+%     } catch (InterruptedException e2) {
+%       LOGGER.error("", e2);
+%       Thread.currentThread().interrupt();
+%     } catch (ExecutionException | CompletionException | CancellationException e) {
+%       LOGGER.error("", e);
+%     }
+%   }
+
+
+% public boolean processHistoricProcessInstances(final Date finishedAfter) {
+%     HistoricProcessInstanceQueryDto query = new HistoricProcessInstanceQueryDto();
+%     query.setFinished(true);
+%     query.setActive(false);
+%     Optional.ofNullable(finishedAfter).ifPresent(query::setFinishedAfter);
+%     List<HistoricProcessInstanceDto> historicProcessInstances;
+%     try {
+%       historicProcessInstances = historicProcessInstanceRestService.queryHistoricProcessInstances(
+%           null, null, query);
+%     } catch (ApiException e) {
+%       LOGGER.error(e.getResponseBody(), e);
+%       return true;
+%     }
+%     Map<String, HistoricProcessInstanceDto> instances = historicProcessInstances.stream()
+%         .collect(Collectors.toMap(HistoricProcessInstanceDto::getRootProcessInstanceId, h -> h,
+%             (a, b) -> a));
+%     var resultChanged = Holder.of(false);
+%     CompletableFuture.allOf(
+%         workflowObjectFacade.findByProcessInstanceIds(instances.keySet()).values()
+%         .stream()
+%         .map(ff -> ff.thenCompose(workflowObject -> {
+%           HistoricProcessInstanceDto historicDto =
+%               instances.get(workflowObject.getProcessInstanceId());
+%           var changed = new AutoHolder<>(workflowObject::getInput);
+%           if (workflowObject.getEndDate() == null) {
+%             LOGGER.info("workflowObjectID={} endDate={}", workflowObject.getWorkflowObjectID(),
+%                 historicDto.getEndTime());
+%             changed.getValue().setEndDate(historicDto.getEndTime());
+%           }
+%           var changedState = Holder.of(false);
+%           switch (workflowObject.getWorkflowStatus()) {
+%             case Bpmn.Lifecycle.FINISHED, Bpmn.Lifecycle.CANCELED:
+%               break;
+%             default:
+%               // processing of PAUSED_BY_ERROR is unnecessary
+%               // because process instance has been terminated/completed
+%               switch (historicDto.getState()) {
+%                 case EXTERNALLY_TERMINATED:
+%                   changed.getValue().setWorkflowTransition(Bpmn.Lifecycle.CANCELED);
+%                   break;
+%                 default:
+%                   LOGGER.info("workflowObjectID={} status={}", workflowObject.getWorkflowObjectID(),
+%                       workflowObject.getWorkflowStatus());
+%                 case COMPLETED:
+%                   changed.getValue().setWorkflowTransition(Bpmn.Lifecycle.FINISHED);
+%                   break;
+%               }
+%               changedState.setValue(true);
+%               break;
+%           }
+%           if (changed.isPresent()) {
+%             return workflowObjectFacade.findByPrimaryKey(workflowObject.getWorkflowObjectID())
+%                 .thenCompose(updatedWorkflowObject -> {
+%                   resultChanged.setValue(true);
+%                   if (Boolean.TRUE.equals(changedState.getValue())) {
+%                     return workflowObjectSubscriberBean.workflowFinished(
+%                         new WorkflowFinished(updatedWorkflowObject,
+%                             historicDto.getState().name()
+%                         ));
+%                   }
+%                   return CompletableFuture.<Void>completedFuture(null);
+%                 });
+%           } else {
+%             return CompletableFuture.<Void>completedFuture(null);
+%           }
+%         }))
+%         .toArray(CompletableFuture[]::new))
+%         .join();
+%     return resultChanged.getValue();
+%   }
+

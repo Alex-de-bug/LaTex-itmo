@@ -1,0 +1,234 @@
+\RequirePackage{fontspec}
+
+\setmainfont{Times New Roman}
+\setsansfont{Arial}
+\setmonofont{Courier New}
+
+\newcommand*\custom@monofont{Courier New}
+
+\RequirePackage{polyglossia}
+\setdefaultlanguage{russian}
+\setotherlanguage{english}
+\newfontfamily\cyrillicfonttt{\custom@monofont}
+
+\RequirePackage[a4paper,left=30mm,right=15mm,top=20mm,bottom=20mm]{geometry}
+\RequirePackage{setspace}
+\onehalfspacing
+\setlength{\parindent}{1.25cm}
+\setlength{\parskip}{0pt}
+\emergencystretch=2em
+
+\RequirePackage{titlesec}
+
+\titleformat{\section}[hang]
+  {\bfseries}
+  {\thesection}
+  {1em}
+  {}
+\titlespacing*{\section}{\parindent}{3.0ex plus 1ex minus .2ex}{1.5ex plus .2ex}
+
+\titleformat{\subsection}[hang]
+  {\bfseries}
+  {\thesubsection}
+  {1em}
+  {}
+\titlespacing*{\subsection}{\parindent}{2.5ex plus .8ex minus .2ex}{1.2ex plus .2ex}
+
+\titleformat{\subsubsection}[hang]
+  {\bfseries}
+  {\thesubsubsection}
+  {1em}
+  {}
+\titlespacing*{\subsubsection}{\parindent}{2.0ex plus .6ex minus .2ex}{1.0ex plus .2ex}
+
+\RequirePackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+\RequirePackage{tocloft}
+\renewcommand{\cftsecleader}{\cftdotfill{\cftdotsep}}
+\renewcommand{\contentsname}{СОДЕРЖАНИЕ}
+
+\RequirePackage{graphicx}
+\RequirePackage{array}
+\RequirePackage{tabularx}
+\RequirePackage{longtable}
+\RequirePackage{ltablex}
+\RequirePackage{multirow}
+\RequirePackage{needspace}
+\RequirePackage{caption}
+\RequirePackage{amsmath}
+\RequirePackage{chngcntr}
+\RequirePackage{listings}
+\lstset{
+  inputencoding=utf8,
+  extendedchars=true,
+  breaklines=true,
+  basicstyle=\small\ttfamily,
+  frame=single,
+  numbers=left,
+  numberstyle=\tiny\ttfamily,
+  columns=fullflexible,
+  keepspaces=true,
+  literate={\\}{{\char`\\}}1 {\{}{{\char`\{}}1 {\}}{{\char`\}}}1,
+}
+
+\newcolumntype{Y}{>{\centering\arraybackslash}X}
+\keepXColumns
+
+\makeatletter
+\renewcommand{\@biblabel}[1]{#1.}
+\makeatother
+
+\makeatletter
+\renewenvironment{thebibliography}[1]{%
+  \list{\@biblabel{\@arabic\c@enumiv}}{%
+    \settowidth\labelwidth{\@biblabel{#1}}%
+    \leftmargin\labelwidth
+    \advance\leftmargin\labelsep
+    \usecounter{enumiv}%
+    \let\p@enumiv\@empty
+    \renewcommand\theenumiv{\@arabic\c@enumiv}%
+  }%
+  \sloppy
+  \clubpenalty4000
+  \@clubpenalty\clubpenalty
+  \widowpenalty4000%
+  \sfcode`\.=\@m
+}{%
+  \def\@noitemerr{\@latex@warning{Empty `thebibliography' environment}}%
+  \endlist
+}
+\makeatother
+
+\NewDocumentCommand{\VKRformula}{ O{} m m }{%
+  \par\vspace{\baselineskip}%
+  \begin{equation}
+    \IfNoValueF{#1}{\label{#1}}%
+    #2%
+  \end{equation}%
+  \begingroup
+  \edef\VKR@tmp{\detokenize{#3}}%
+  \ifx\VKR@tmp\empty
+    \par\vspace{\baselineskip}%
+  \else
+    \begin{VKRwhere}#3\end{VKRwhere}%
+    \par\vspace{\baselineskip}%
+  \fi
+  \endgroup
+}
+
+\makeatletter
+\newenvironment{VKRwhere}{%
+  \par\noindent\hspace{\parindent}где\space
+  \ignorespaces
+}{%
+  \unskip\par
+}
+
+\NewDocumentCommand{\VKRwitem}{ m m O{;} }{%
+  #1~— #2#3\space
+}
+\makeatother
+
+\captionsetup[figure]{name=Рисунок,labelsep=endash,justification=centering,singlelinecheck=false,font={singlespacing}}
+\renewcommand{\figurename}{Рисунок}
+
+\captionsetup[table]{name=Таблица,labelsep=endash,justification=raggedright,singlelinecheck=false,position=top,font={singlespacing}}
+\renewcommand{\tablename}{Таблица}
+
+\captionsetup[longtable]{name=Таблица,labelsep=endash,justification=raggedright,singlelinecheck=false,position=top,font={singlespacing}}
+
+\counterwithin{figure}{section}
+\counterwithin{table}{section}
+\numberwithin{equation}{section}
+
+\RequirePackage{hyperref}
+\hypersetup{hidelinks}
+\RequirePackage{pdfpages}
+
+\usepackage{float}
+
+\RequirePackage{enumitem}
+\setlist[itemize]{label=\textendash,leftmargin=2.0\parindent}
+\setlist[enumerate]{leftmargin=2.0\parindent}
+
+\makeatletter
+\let\VKR@orig@section\section
+\RenewDocumentCommand{\section}{s o m}{%
+  \IfBooleanTF{#1}{%
+    \VKR@orig@section*{#3}%
+  }{%
+    \clearpage
+    \IfNoValueTF{#2}{%
+      \VKR@orig@section{#3}%
+    }{%
+      \VKR@orig@section[#2]{#3}%
+    }%
+  }%
+}
+\makeatother
+
+\newcommand{\CUSTOMstruct}[1]{%
+  \clearpage
+  \phantomsection
+  \addcontentsline{toc}{section}{\MakeUppercase{#1}}%
+  \begin{center}\bfseries\MakeUppercase{#1}\end{center}%
+  \vspace{1em}%
+}
+
+\makeatletter
+\newcommand{\customtableofcontents}{%
+  \clearpage
+  \phantomsection
+  \begin{center}\bfseries\MakeUppercase{СОДЕРЖАНИЕ}\end{center}%
+  \vspace{1em}%
+  \@starttoc{toc}%
+}
+
+\newcommand{\CUSTOMlistoffigures}{%
+  \clearpage
+  \phantomsection
+  \addcontentsline{toc}{section}{\MakeUppercase{СПИСОК ИЛЛЮСТРАТИВНОГО МАТЕРИАЛА}}%
+  \begin{center}\bfseries\MakeUppercase{СПИСОК ИЛЛЮСТРАТИВНОГО МАТЕРИАЛА}\end{center}%
+  \vspace{1em}%
+  \@starttoc{lof}%
+}
+\newcommand{\CUSTOMlistoftables}{%
+  \clearpage
+  \phantomsection
+  \addcontentsline{toc}{section}{\MakeUppercase{СПИСОК ТАБЛИЦ}}%
+  \begin{center}\bfseries\MakeUppercase{СПИСОК ТАБЛИЦ}\end{center}%
+  \vspace{1em}%
+  \@starttoc{lot}%
+}
+\makeatother
+
+\newcommand{\CUSTOMappendix}[1]{%
+  \clearpage
+  \refstepcounter{section}%
+  \phantomsection
+  \addcontentsline{toc}{section}{ПРИЛОЖЕНИЕ~\thesection\space (#1)}%
+  \begin{center}\bfseries ПРИЛОЖЕНИЕ~\thesection\\#1\end{center}%
+  \vspace{1em}%
+}
+
+\newcommand{\CUSTOMappendixsetup}{%
+  \setcounter{section}{0}%
+  \renewcommand{\thesection}{\CUSTOMappendixletter{section}}%
+  \providecommand{\theHsection}{}
+  \renewcommand{\theHsection}{app.\Alph{section}}%
+}
+
+\makeatletter
+\newcommand{\CUSTOMappendixletter}[1]{%
+  \ifcase\value{#1}\or
+  А\or Б\or В\or Г\or Д\or Е\or Ж\or И\or К\or Л\or М\or Н\or П\or Р\or С\or Т\or У\or Ф\or Х\or Ц\or Ш\or Щ\or Э\or Ю\or Я%
+  \else
+  \arabic{#1}%
+  \fi
+}
+\makeatother

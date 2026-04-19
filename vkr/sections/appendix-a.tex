@@ -1,0 +1,229 @@
+\CUSTOMappendix{Система сбора истории камунды}
+
+\begin{lstlisting}[
+  caption={Контроллер},
+  label={lst:activity-log}
+]
+@Slf4j
+@RestController
+@RequestMapping("/api")
+@RequiredArgsConstructor
+@Tag(name = "Activity Log API")
+public class ActivityLogController {
+
+  private final ActivityNameRegistry activityNameRegistry;
+
+  /**
+   * Скачивание журнала активностей в формате Excel.
+   *
+   * @param startTime Время начала периода (необязательно). Формат: yyyy-MM-dd'T'HH:mm:ss
+   * @param endTime Время окончания периода (необязательно). Формат: yyyy-MM-dd'T'HH:mm:ss
+   * @return Excel-файл с журналом активностей
+   */
+  @GetMapping("/activity-log")
+  @Operation(
+      summary = "Скачать журнал активностей",
+      description =
+          "Возвращает Excel-файл с журналом активностей Camunda за указанный период. "
+              + "Если параметры времени не указаны, возвращается полный журнал.")
+  @ApiResponses(
+      value = {
+        @ApiResponse(
+            responseCode = "200",
+            description = "Файл успешно сгенерирован и возвращен",
+            content =
+                @Content(
+                    mediaType =
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")),
+        @ApiResponse(responseCode = "400", description = "Некорректные параметры запроса"),
+        @ApiResponse(
+            responseCode = "404",
+            description = "Нет данных для отображения в журнале активностей за указанный период"),
+        @ApiResponse(responseCode = "500", description = "Внутренняя ошибка сервера")
+      })
+  public ResponseEntity<Resource> downloadActivityLog(
+      @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+          Date startTime,
+      @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
+          Date endTime) {
+
+    Date currentTime = new Date();
+
+    if ((startTime != null && endTime != null && startTime.after(endTime))
+        || (startTime != null && startTime.after(currentTime))
+        || (endTime != null && endTime.after(currentTime))) {
+      return ResponseEntity.badRequest().build();
+    }
+    try {
+
+      log.info("Запрос на получение логгов по камунде");
+      File file = activityNameRegistry.generateActivityLogFile(startTime, endTime);
+
+      if (file == null) {
+        log.warn("Нет данных для отображения в журнале активностей");
+        return ResponseEntity.notFound().build();
+      }
+
+      InputStreamResource resource = new InputStreamResource(new FileInputStream(file));
+
+      DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss");
+      String formattedDate = dateFormat.format(new Date());
+
+      HttpHeaders headers = new HttpHeaders();
+      headers.add(
+          HttpHeaders.CONTENT_DISPOSITION,
+          "attachment; filename=ActivityLog_" + formattedDate + ".xlsx");
+
+      return ResponseEntity.ok()
+          .headers(headers)
+          .contentLength(file.length())
+          .contentType(
+              MediaType.parseMediaType(
+                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+          .body(resource);
+    } catch (IOException e) {
+      log.error("Ошибка при создании файла журнала активностей", e);
+      return ResponseEntity.internalServerError().build();
+    }
+  }
+}
+\end{lstlisting}
+
+
+\begin{lstlisting}[
+  caption={Сервис},
+  label={lst:activity-log}
+]
+/**
+ * ActivityNameRegistry загружает отображения ID активностей в человекочитаемые имена из JSON-файла
+ * при старте приложения.
+ */
+@Component
+@RequiredArgsConstructor
+public class ActivityNameRegistry {
+  private static final Logger LOGGER = LoggerFactory.getLogger(ActivityNameRegistry.class);
+
+  private Map<String, ActivityInfo> activityInfoMap = new HashMap<>();
+
+  private final HistoricActivityInstanceApi historicActivityRestService;
+
+  @Value("${activity.decor.path}")
+  private String pathToActivityDecor;
+
+  /** Инициализирует отображения из JSON-файла при старте Spring-контейнера. */
+  @PostConstruct
+  public void init() {
+    try {
+      ClassPathResource resource = new ClassPathResource(pathToActivityDecor);
+      ObjectMapper mapper = new ObjectMapper();
+      this.activityInfoMap = mapper.readValue(resource.getInputStream(),
+          new TypeReference<Map<String, ActivityInfo>>() {});
+      LOGGER.info("Loaded {} activity info mappings");
+    } catch (IOException e) {
+      LOGGER.error("Failed to load activity-decor.json", e);
+    }
+  }
+
+  /** Возвращает человекочитаемое имя активности по её ID. */
+  public String getName(String activityId) {
+    ActivityInfo info = this.activityInfoMap.get(activityId);
+    return info != null ? info.getName() : activityId;
+  }
+
+  /** Возвращает схему активности по её ID. */
+  public String getSchema(String activityId) {
+    ActivityInfo info = this.activityInfoMap.get(activityId);
+    return info != null ? info.getSchema() : null;
+  }
+
+  /** Класс для хранения информации об активности. */
+  @Getter
+  @Setter
+  public static class ActivityInfo {
+    private String name;
+    private String schema;
+  }
+
+  /**
+   * Генерирует активити лог.
+   *
+   * @param startTime Optional start date filter
+   * @param endTime Optional end date filter
+   * @return Generated Excel file with activity log
+   * @throws IOException If file cannot be created
+   */
+  public File generateActivityLogFile(final Date startTime, final Date endTime)
+      throws IOException {
+    HistoricActivityInstanceQueryDto query = new HistoricActivityInstanceQueryDto();
+    Optional.ofNullable(startTime).ifPresent(query::setStartedAfter);
+    Optional.ofNullable(endTime).ifPresent(query::setStartedBefore);
+
+    List<HistoricActivityInstanceDto> activities = new ArrayList<>();
+
+    try {
+      activities = historicActivityRestService
+          .queryHistoricActivityInstances(null, null, query).stream()
+          .filter(h -> h.getEndTime() != null)
+          .collect(Collectors.toList());
+
+      if (activities.isEmpty()) {
+        return null;
+      }
+
+      Workbook workbook = new XSSFWorkbook();
+      Sheet sheet = workbook.createSheet("Activity Log");
+      int rowNum = 1;
+
+      Row headerRow = sheet.createRow(0);
+      headerRow.createCell(0).setCellValue("Activity ID");
+      headerRow.createCell(1).setCellValue("Activity Name");
+      headerRow.createCell(2).setCellValue("Start Time");
+      headerRow.createCell(3).setCellValue("End Time");
+      headerRow.createCell(4).setCellValue("Duration (ms)");
+      headerRow.createCell(5).setCellValue("Process Instance ID");
+      headerRow.createCell(6).setCellValue("Schema");
+      headerRow.createCell(7).setCellValue("Parent Activity Instance Id");
+      headerRow.createCell(8).setCellValue("Parent Activity Instance Name");
+      headerRow.createCell(9).setCellValue("Called Process Instance Id");
+      headerRow.createCell(10).setCellValue("Root Process Instance Id");
+      headerRow.createCell(11).setCellValue("Parent Activity Instance Schema");
+      headerRow.createCell(12).setCellValue("Activity Type");
+
+
+      SimpleDateFormat timeFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+
+      for (HistoricActivityInstanceDto activity : activities) {
+        Row row = sheet.createRow(rowNum++);
+        row.createCell(0).setCellValue(activity.getActivityId());
+        row.createCell(1).setCellValue(getName(activity.getActivityId()));
+        row.createCell(2).setCellValue(timeFormat.format(activity.getStartTime()));
+        row.createCell(3).setCellValue(timeFormat.format(activity.getEndTime()));
+        row.createCell(4).setCellValue(
+            activity.getDurationInMillis() != null ? activity.getDurationInMillis() : 0);
+        row.createCell(5).setCellValue(activity.getProcessInstanceId());
+        row.createCell(6).setCellValue(getSchema(activity.getActivityId()));
+        row.createCell(7).setCellValue(activity.getParentActivityInstanceId());
+        row.createCell(8).setCellValue(getName(
+            activity.getParentActivityInstanceId()));
+        row.createCell(9).setCellValue(activity.getCalledProcessInstanceId());
+        row.createCell(10).setCellValue(activity.getRootProcessInstanceId());
+        row.createCell(11).setCellValue(getSchema(
+            activity.getParentActivityInstanceId()));
+        row.createCell(12).setCellValue(activity.getActivityType());
+      }
+
+      File tempFile = File.createTempFile("activityLog", ".xlsx");
+      try (FileOutputStream outputStream = new FileOutputStream(tempFile)) {
+        workbook.write(outputStream);
+      }
+
+      workbook.close();
+      return tempFile;
+
+    } catch (ApiException e) {
+      LOGGER.error(e.getResponseBody(), e);
+      throw new IOException("Failed to retrieve activity data", e);
+    }
+  }
+}
+\end{lstlisting}

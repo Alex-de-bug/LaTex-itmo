@@ -1,0 +1,672 @@
+\CUSTOMappendix{Дописывание получения движений токена по workflow}
+
+\begin{lstlisting}[
+  caption={Handler},
+  label={lst:activity-log}
+]
+@Service
+@RequiredArgsConstructor
+public class WorkflowEventProcessor implements EventHandler {
+
+  private static final Logger logger =
+      LoggerFactory.getLogger(WorkflowEventProcessor.class);
+
+  private final EventSender eventSender;
+  private final ProcessObjectService processObjectService;
+  private final ProcessObjectObserver processObjectObserver;
+  private final ObjectProvider<StepUtilityService> stepUtility;
+
+  @Override
+  @Transactional
+  public CompletableFuture<Void> onProcessInstance(ProcessEvent event) {
+    return processObjectService.findByInstanceId(event.getRootInstanceId())
+        .thenCompose(optional -> optional
+            .map(obj -> {
+              var holder = new AutoHolder<>(obj::getInput);
+              var dirty = Holder.of(false);
+              switch (obj.getStatus()) {
+                case Status.FINISHED, Status.CANCELED:
+                  break;
+                default:
+                  switch (event.getState()) {
+                    case TERMINATED, EXTERNALLY_TERMINATED:
+                      holder.getValue().setTransition(Status.CANCELED);
+                      break;
+                    case COMPLETED:
+                      holder.getValue().setTransition(Status.FINISHED);
+                      break;
+                    default:
+                      logger.info("id={} status={}", obj.getId(),
+obj.getStatus());
+                  }
+                  if (obj.getEndDate() == null) {
+                    holder.getValue().setEndDate(event.getEndTime());
+                  }
+                  dirty.setValue(true);
+                  break;
+              }
+              if (holder.isPresent() && Boolean.TRUE.equals(dirty.getValue()))
+{
+                return processObjectObserver
+                    .onFinished(new FinishedEvent(obj, holder.getValue(),
+                        event.getState().name()))
+                    .<Void>thenApply(r -> null);
+              }
+              return AsyncUtil.<Void>completedFuture(null);
+            })
+            .orElseGet(() -> AsyncUtil.runAsync(retry(event))));
+  }
+
+  @Override
+  @Transactional
+  public CompletableFuture<Void> onTaskInstance(TaskEvent event) {
+    return processObjectService.findBaseByInstanceId(event.getRootInstanceId())
+        .thenCompose(optional -> optional
+            .<AsyncFuture<Void>>map(base -> {
+              switch (event.getEventType()) {
+                case DELETE, COMPLETE:
+                  return stepUtility.getObject()
+                      .closeTask(base, event.getTaskId());
+                case CREATE:
+                  return processObjectService
+                      .loadFromRemote(base, Optional.of(event.getTaskKey()))
+                      .thenCompose(obj -> handleCreate(event, obj));
+                default:
+                  logger.warn("skip {}", event);
+                  return AsyncUtil.completedFuture(null);
+              }
+            }).orElseGet(() -> AsyncUtil.runAsync(retry(event))));
+  }
+
+  private AsyncFuture<Void> handleCreate(TaskEvent event, ProcessObject obj) {
+    var template = obj.getType()
+        .getStepTemplates().stream()
+        .filter(t -> t.getKey().equals(event.getTaskKey()))
+        .findAny();
+    return stepUtility.getObject()
+        .handleIncoming(event.getInstanceId(), obj,
+            event.getTaskId(), event.getTaskKey(), template)
+        .<Void>thenApply(r -> null);
+  }
+
+  @Override
+  @Transactional
+  public CompletableFuture<Void> onActivityInstance(ActivityEvent event) {
+    if (!accept(event)) {
+      return CompletableFuture.completedFuture(null);                          
+    }
+    return processObjectService.findByInstanceId(event.getInstanceId())        
+        .thenCompose(optional -> optional
+            .map((ProcessObject obj) -> {                                      
+              if (Objects.equals(event.getActivityId(), obj.getStatus())) {
+                return AsyncUtil.<Void>completedFuture(null);                  
+              } 
+              var state = prefix(event.getActivityType()) +                    
+normalize(event.getActivityId());                                              
+              if (state.equals(obj.getStatus())) {
+                return AsyncUtil.<Void>completedFuture(null);                  
+              } 
+              var holder = new AutoHolder<>(obj::getInput);                    
+              var lifecycle = obj.getType().getLifecycle();
+              if (lifecycle.getState(obj.getStatus())                          
+                  .getAllowedTransitions().contains(state)) {                  
+                Optional.ofNullable(lifecycle.getTransition(state))            
+                    .map(Transition::getDestination)                           
+                    .ifPresentOrElse(
+                        s -> holder.getValue().setTransition(state, s),        
+                        () -> holder.getValue().setTransition(state));         
+              }
+              if (holder.isPresent()) {                                        
+                return processObjectObserver.onPending(                        
+                    new PendingEvent(obj, state, ""));
+              }                                                                
+              return AsyncUtil.<Void>completedFuture(null);
+            })                                                                 
+            .orElseGet(() -> AsyncUtil.runAsync(retry(event))));
+  }
+
+  private Runnable retry(BaseEvent event) {                                    
+    return () -> {
+      try {                                                                    
+        Thread.sleep(100);
+      } catch (InterruptedException e) {
+        throw new RuntimeException(e);
+      }                                                                        
+      eventSender.send(event);
+    };                                                                         
+  }             
+
+  private boolean accept(ActivityEvent event) {
+    return switch (event.getActivityType()) {
+      case "intermediateMessageCatch" -> true;
+      default -> false;                                                        
+    };
+  }                                                                            
+                
+  private String prefix(String type) {
+    return switch (type) {
+      case "eventBasedGateway"         -> Prefixes.GATEWAY;
+      case "intermediateMessageCatch"  -> Prefixes.CATCH;                      
+      case "subProcess", "multiInstanceBody" -> Prefixes.SUBPROCESS;
+      case "serviceTask"               -> Prefixes.SERVICE;                    
+      default -> "";                                                           
+    };                                                                         
+  }                                                                            
+                
+  private String normalize(String id) {
+    return id.contains("#") ? id.substring(0, id.indexOf("#")) : id;
+  }                                                                            
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={BaseEvent},
+  label={lst:activity-log}
+]
+@Getter
+@SuperBuilder
+@NoArgsConstructor
+@ToString
+public abstract class BaseEvent {
+  private EventType eventType;
+  private EventClass eventClass;
+  private String rootProcessInstanceId;
+  private String processInstanceId;
+  private String processDefinitionKey;
+  private Date endTime;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={ActivityInstanceEvent},
+  label={lst:activity-log}
+]
+@Getter
+@SuperBuilder
+@NoArgsConstructor
+@ToString
+public class ActivityInstanceEvent extends BaseEvent {
+  private String activityId;
+  private String activityType;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={TaskInstanceEvent},
+  label={lst:activity-log}
+]
+@Getter
+@SuperBuilder
+@NoArgsConstructor
+@ToString
+public class TaskInstanceEvent extends BaseEvent {
+  private String taskId;
+  private String taskDefinitionKey;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={ProcessInstanceEvent},
+  label={lst:activity-log}
+]
+@Getter
+@SuperBuilder
+@NoArgsConstructor
+@ToString
+public class ProcessInstanceEvent extends BaseEvent {
+  private ProcessInstanceState state;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={EventClass},
+  label={lst:activity-log}
+]
+public enum EventClass {
+  PROCESS_INSTANCE,
+  ACTIVITY_INSTANCE,
+  TASK_INSTANCE
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={EventType},
+  label={lst:activity-log}
+]
+public enum EventType {
+  START,
+  END,
+  CREATE,
+  DELETE,
+  COMPLETE;
+
+  public static EventType find(String name) throws Exception {
+    for (EventType eventType : values()) {
+      if (name.equalsIgnoreCase(eventType.name().toLowerCase())) {
+        return eventType;
+      }
+    }
+    throw new Exception();
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={ProcessInstanceState},
+  label={lst:activity-log}
+]
+
+public enum ProcessInstanceState {
+  ACTIVE,
+  COMPLETED,
+  TERMINATED,
+  EXTERNALLY_TERMINATED,
+  SUSPENDED,
+  CANCELLED,
+  NOT_DEFINED;
+
+  public static ProcessInstanceState find(String name) throws Exception {
+    for (ProcessInstanceState state : values()) {
+      if (name.equalsIgnoreCase(state.name().toLowerCase())) {
+        return state;
+      }
+    }
+    throw new Exception();
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={SystemEnvironmentUtil},
+  label={lst:activity-log}
+]
+public class SystemEnvironmentUtil {
+
+  public static String getEnvOrDefault(String environment, String def) {
+    var env = System.getenv(environment);
+    return env != null ? env : def;
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={KafkaProducerConfig},
+  label={lst:activity-log}
+]
+
+@Configuration
+public class KafkaProducerConfig {
+
+  public static final String EVENT_TOPIC_NAME = "camunda-events";
+
+  private final String kafkaBrokers;
+  private final String kafkaTopic;
+
+  public KafkaProducerConfig() {
+    kafkaBrokers = SystemEnvironmentUtil.getEnvOrDefault("EVENT_LISTENER_KAFKA_BROKERS",
+        "kafka:9876");
+    kafkaTopic = SystemEnvironmentUtil.getEnvOrDefault("EVENT_LISTENER_KAFKA_TOPIC",
+        EVENT_TOPIC_NAME);
+  }
+
+  @Bean
+  public JsonSerializer<BaseEvent> eventDtoSerializer(ObjectMapper objectMapper) {
+    var serializer = new JsonSerializer<BaseEvent>(objectMapper);
+    serializer.setAddTypeInfo(false);
+    return serializer;
+  }
+
+  @Bean
+  public ProducerFactory<String, BaseEvent> producerFactory(
+      JsonSerializer<BaseEvent> eventDtoSerializer) {
+    return new DefaultKafkaProducerFactory<>(
+        Map.of(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBrokers),
+        new StringSerializer(),
+        eventDtoSerializer
+
+    );
+  }
+
+  @Bean
+  public KafkaTemplate<String, BaseEvent> kafkaTemplate(
+      ProducerFactory<String, BaseEvent> producerFactory) {
+    return new KafkaTemplate<>(producerFactory);
+  }
+
+  @Bean
+  public String kafkaTopicName() {
+    return kafkaTopic;
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={EventProducer},
+  label={lst:activity-log}
+]
+@Service
+@RequiredArgsConstructor
+public class EventProducer {
+
+  private final String kafkaTopicName;
+  private final KafkaTemplate<String, BaseEvent> kafkaTemplate;
+
+  public void send(BaseEvent eventDto) {
+    kafkaTemplate.send(kafkaTopicName, eventDto);
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={EventListenerPlugin},
+  label={lst:activity-log}
+]
+@Setter
+@SpringBootApplication
+public class EventListenerPlugin implements ProcessEnginePlugin {
+
+  @Override
+  public void preInit(final ProcessEngineConfigurationImpl processEngineConfiguration) {
+    var application = SpringApplication.run(EventListenerPlugin.class);
+    var eventHandler = application.getBean(HistoryEventHandler.class);
+    processEngineConfiguration.setHistoryEventHandler(eventHandler);
+  }
+
+  @Override
+  public void postInit(final ProcessEngineConfigurationImpl processEngineConfiguration) {
+  }
+
+  @Override
+  public void postProcessEngineBuild(final ProcessEngine processEngine) {}
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={EventHandlerKafka},
+  label={lst:activity-log}
+]
+@Component
+@RequiredArgsConstructor
+public class EventHandlerKafka implements HistoryEventHandler {
+
+  private final EventHandlerManager eventHandlerManager;
+  private final EventProducer eventProducer;
+
+  @Override
+  public void handleEvent(final HistoryEvent event) {
+    if (!eventHandlerManager.filterDefaultProcesses(event)) {
+      eventHandlerManager
+          .filterAndCreateHistoryEvent(event)
+          .ifPresent(eventProducer::send);
+    }
+  }
+
+  @Override
+  public void handleEvents(final List<HistoryEvent> events) {
+    events.forEach(this::handleEvent);
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={EventHandlerManager},
+  label={lst:activity-log}
+]
+@Component
+@RequiredArgsConstructor
+@Sl4j
+public class EventHandlerManager {
+
+  public boolean filterDefaultProcesses(HistoryEvent event) {
+    if (event.getProcessDefinitionKey() == null) {
+      return false;
+    }
+
+    return event.getProcessDefinitionKey().equals("invoice")
+        || event.getProcessDefinitionKey().equals("ReviewInvoice");
+  }
+
+  public Optional<BaseEvent> filterAndCreateHistoryEvent(HistoryEvent event)
+      throws Exception {
+    if (event.getEventType() == null) {
+      return Optional.empty();
+    }
+
+    if (event instanceof HistoricActivityInstanceEventEntity e) {
+      return buildActivityInstanceEvent(e);
+    } else if (event instanceof HistoricTaskInstanceEventEntity e) {
+      return buildTaskInstanceEvent(e);
+    } else if (event instanceof HistoricProcessInstanceEventEntity e) {
+      return buildProcessInstanceEvent(e);
+    } else {
+      return Optional.empty();
+    }
+  }
+
+  private Optional<BaseEvent> buildActivityInstanceEvent(
+      HistoricActivityInstanceEventEntity event) throws Exception {
+    if (event.getActivityId() == null
+        || "userTask".equals(event.getActivityType())) {
+      return Optional.empty();
+    }
+
+    return switch (event.getEventType()) {
+      case "start" -> Optional.of(ActivityInstanceEvent.builder()
+          .eventClass(EventClass.ACTIVITY_INSTANCE)
+          .eventType(EventType.find(event.getEventType()))
+          .rootProcessInstanceId(event.getRootProcessInstanceId())
+          .processInstanceId(event.getProcessInstanceId())
+          .processDefinitionKey(event.getProcessDefinitionKey())
+          .activityId(event.getActivityId())
+          .activityType(event.getActivityType())
+          .build());
+      default -> Optional.empty();
+    };
+  }
+
+  private Optional<BaseEvent> buildTaskInstanceEvent(
+      HistoricTaskInstanceEventEntity event) throws Exception {
+    return switch (event.getEventType()) {
+      case "delete", "complete", "create" -> Optional.of(TaskInstanceEvent.builder()
+          .eventClass(EventClass.TASK_INSTANCE)
+          .eventType(EventType.find(event.getEventType()))
+          .rootProcessInstanceId(event.getRootProcessInstanceId())
+          .processInstanceId(event.getProcessInstanceId())
+          .processDefinitionKey(event.getProcessDefinitionKey())
+          .taskDefinitionKey(event.getTaskDefinitionKey())
+          .taskId(event.getTaskId())
+          .build());
+      default -> Optional.empty();
+    };
+  }
+
+  private Optional<BaseEvent> buildProcessInstanceEvent(
+      HistoricProcessInstanceEventEntity event) throws Exception {
+    return switch (event.getEventType()) {
+      case "update", "create", "start", "migrate" -> Optional.empty();
+      default -> Optional.of(ProcessInstanceEvent.builder()
+          .eventClass(EventClass.PROCESS_INSTANCE)
+          .eventType(EventType.find(event.getEventType()))
+          .state(ProcessInstanceState.find(event.getState()))
+          .rootProcessInstanceId(event.getRootProcessInstanceId())
+          .processInstanceId(event.getProcessInstanceId())
+          .processDefinitionKey(event.getProcessDefinitionKey())
+          .endTime(event.getEndTime())
+          .build());
+    };
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={EventListenerHandler},
+  label={lst:activity-log}
+]
+public interface EventListenerHandler {
+
+  CompletableFuture<Void> consumeActivityInstanceEvent(ActivityInstanceEvent event);
+
+  CompletableFuture<Void> consumeProcessInstanceEvent(ProcessInstanceEvent event);
+
+  CompletableFuture<Void> consumeTaskInstanceEvent(TaskInstanceEvent event);
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={},
+  label={lst:activity-log}
+]
+@Configuration
+public class KafkaConsumerConfig {
+
+
+  private final String kafkaBrokers;
+
+  public KafkaConsumerConfig() {
+    kafkaBrokers = SystemEnvironmentUtil.getEnvOrDefault("EVENT_LISTENER_KAFKA_BROKERS",
+        "kafka:9876");
+  }
+
+  @Bean
+  public ConsumerFactory<String, BaseEvent> beConsumerFactory(
+      BaseEventDeserializer baseEventDeserializer) {
+    return new DefaultKafkaConsumerFactory<>(
+        Map.of(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBrokers,
+            ConsumerConfig.GROUP_ID_CONFIG, "group",
+            "enable.auto.commit", false),
+        new StringDeserializer(),
+        baseEventDeserializer
+    );
+  }
+
+  @Bean
+  public ConcurrentKafkaListenerContainerFactory<String, BaseEvent>
+      baseEventListenerContainerFactory(ConsumerFactory<String, BaseEvent> beConsumerFactory) {
+    var containerFactory = new ConcurrentKafkaListenerContainerFactory<String, BaseEvent>();
+    containerFactory.setConcurrency(1);
+    containerFactory.setConsumerFactory(beConsumerFactory);
+    containerFactory.getContainerProperties()
+        .setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+    return containerFactory;
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={CamundaEventProcessMap},
+  label={lst:activity-log}
+]
+@Component
+public class CamundaEventProcessMap {
+  private final Map<String, CamundaEventProcessDeque> map = new HashMap<>();
+
+  public void put(BaseEvent event, Function<BaseEvent, CompletableFuture<Void>> processor) {
+    synchronized (map) {
+      map.computeIfAbsent(event.getRootProcessInstanceId(),
+          id -> new CamundaEventProcessDeque(map, processor, () -> map.remove(id)))
+          .add(event);
+    }
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={CamundaEventProcessDeque},
+  label={lst:activity-log}
+]
+public class CamundaEventProcessDeque {
+
+  private final Queue<BaseEvent> queue = new ArrayDeque<>();
+  private Object lock;
+  private Function<BaseEvent, CompletableFuture<Void>> processor;
+  private Runnable remove;
+
+  public CamundaEventProcessDeque(Object lock,
+      Function<BaseEvent, CompletableFuture<Void>> processor, Runnable remove) {
+    this.lock = lock;
+    this.processor = processor;
+    this.remove = remove;
+
+    CompletableFuture.runAsync(this::processLoop);
+  }
+  public void add(BaseEvent event) {
+    queue.add(event);
+  }
+
+  private void processLoop() {
+    for (;;) {
+      BaseEvent currentEvent;
+      synchronized (lock) {
+        currentEvent = queue.poll();
+        if (Objects.isNull(currentEvent)) {
+          remove.run();
+          break;
+        }
+      }
+      processor.apply(currentEvent).<Void>exceptionally(e -> {
+        LOG.warn(currentEvent.toString(), e);
+        return null;
+      }).join();
+    }
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={bpm-platform.xml },
+  label={lst:activity-log}
+]
+<?xml version="1.0" encoding="UTF-8"?>
+<bpm-platform xmlns="http://www.camunda.org/schema/1.0/BpmPlatform" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+xsi:schemaLocation="http://www.camunda.org/schema/1.0/BpmPlatform http://www.camunda.org/schema/1.0/BpmPlatform ">
+
+<process-engine name="default">
+  <job-acquisition>default</job-acquisition>
+  <configuration>org.camunda.bpm.engine.impl.cfg.StandaloneProcessEngineConfiguration</configuration>
+  <datasource>java:jdbc/ProcessEngine</datasource>
+
+  <properties>
+    <property name="history">full</property>
+  </properties>
+
+  <plugins>
+
+    <plugin>
+      <class>ru.rabis.camunda.eventlistener.EventListenerPlugin</class>
+    </plugin>
+  </plugins>
+
+
+</process-engine>
+
+</bpm-platform>
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={EventListenerConsumer},
+  label={lst:activity-log}
+]
+@Service
+@RequiredArgsConstructor
+public class EventListenerConsumer {
+
+  private final EventListenerHandler eventListenerHandler;
+  private final CamundaEventProcessMap map;
+
+  @KafkaListener(topics = KafkaConsumerConfig.EVENT_TOPIC_NAME,
+      containerFactory = "baseEventListenerContainerFactory")
+  public void consumeEvent(BaseEvent event, Acknowledgment acknowledgment) {
+    map.put(event, e -> {
+      if (e instanceof ActivityInstanceEvent e2) {
+        return eventListenerHandler.consumeActivityInstanceEvent(e2);
+      } else if (e instanceof ProcessInstanceEvent e2) {
+        return eventListenerHandler.consumeProcessInstanceEvent(e2);
+      } else if (e instanceof TaskInstanceEvent e2) {
+        return eventListenerHandler.consumeTaskInstanceEvent(e2);
+      }
+      return CompletableFuture.failedFuture(new ClassCastException(e.getClass().getSimpleName()));
+    });
+    acknowledgment.acknowledge();
+  }
+}
+\end{lstlisting}

@@ -1,0 +1,52 @@
+\CUSTOMappendix{Конфигурация движка Camunda под нагрузку}
+\label{appendix:camunda-config}
+
+\begin{lstlisting}[
+  caption={bpm-platform.xml},
+  label={lst:camunda-job-executor}
+]
+<?xml version="1.0" encoding="UTF-8"?>
+<bpm-platform xmlns="http://www.camunda.org/schema/1.0/BpmPlatform"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <job-executor>
+    <job-acquisition name="default">
+      <properties>
+        <property name="maxJobsPerAcquisition">10</property>
+        <property name="waitTimeInMillis">300</property>
+        <property name="lockTimeInMillis">300000</property>
+        <property name="corePoolSize">3</property>
+        <property name="maxPoolSize">10</property>
+        <property name="queueCapacity">3</property>
+      </properties>
+    </job-acquisition>
+  </job-executor>
+</bpm-platform>
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={bpm-platform.xml},
+  label={lst:camunda-job-executor}
+]
+<?xml version="1.0" encoding="UTF-8"?>
+<bpm-platform xmlns="http://www.camunda.org/schema/1.0/BpmPlatform"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <properties>
+    <property name="jobExecutorAsyncResponseTimeout">10000</property>
+    <property name="jobExecutorDefaultLockTimeInMillis">20000</property>
+    <property name="batchJobsPerSeed">100</property>
+    <property name="history">none</property>
+  </properties>
+  <job-executor>
+    <job-acquisition name="default">
+      <properties>
+        <property name="maxJobsPerAcquisition">10</property>
+        <property name="waitTimeInMillis">300</property>
+        <property name="lockTimeInMillis">300000</property>
+        <property name="corePoolSize">3</property>
+        <property name="maxPoolSize">10</property>
+        <property name="queueCapacity">3</property>
+      </properties>
+    </job-acquisition>
+  </job-executor>
+</bpm-platform>
+\end{lstlisting}

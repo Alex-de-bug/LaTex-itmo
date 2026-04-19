@@ -1,0 +1,11 @@
+\xpg@aux {}{russian}
+\contentsline {section}{\MakeUppercase []{ВВЕДЕНИЕ}}{3}{section*.2}%
+\contentsline {section}{\numberline {1}ОСНОВНАЯ ЧАСТЬ}{5}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Посещение лекционных занятий}{5}{subsection.1.1}%
+\contentsline {subsubsection}{\numberline {1.1.1}Лекция 1}{5}{subsubsection.1.1.1}%
+\contentsline {subsubsection}{\numberline {1.1.2}Лекция 2}{8}{subsubsection.1.1.2}%
+\contentsline {subsection}{\numberline {1.2}Разработка шаблона для ВКР}{9}{subsection.1.2}%
+\contentsline {subsection}{\numberline {1.3}Техническое задание по ВКР}{12}{subsection.1.3}%
+\contentsline {section}{\MakeUppercase []{ЗАКЛЮЧЕНИЕ}}{14}{section*.5}%
+\contentsline {section}{ПРИЛОЖЕНИЕ~А (Подтверждение присутствия на лекции)}{15}{section*.6}%
+\contentsline {section}{ПРИЛОЖЕНИЕ~Б (Техническое задание по ВКР)}{16}{section*.8}%

@@ -1,0 +1,638 @@
+\CUSTOMappendix{Написание кеша для метаданных}
+\label{appendix:camunda-config}
+
+\begin{lstlisting}[
+  caption={pom.xml},
+  label={lst:pom.xml}
+]
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <relativePath>../pom.xml</relativePath>
+  </parent>
+
+  <packaging>jar</packaging>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework</groupId>
+        <artifactId>spring-context</artifactId>
+        <version>7.0.0</version>
+    </dependency>
+    <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>2.0.13</version>
+    </dependency>
+    <!-- nuxeo -->
+    <dependency>
+      <groupId>org.nuxeo.client</groupId>
+      <artifactId>nuxeo-java-client</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.projectlombok</groupId>
+      <artifactId>lombok</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.10.1</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mockito</groupId>
+      <artifactId>mockito-core</artifactId>
+      <version>5.11.0</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mockito</groupId>
+      <artifactId>mockito-junit-jupiter</artifactId>
+      <version>5.11.0</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <repositories>
+    
+  </repositories>
+
+  <build>
+    <plugins>
+      <plugin>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.8.1</version>
+        <configuration>
+            <source>17</source>
+            <target>17</target>
+        </configuration>
+      </plugin>
+      <plugin>
+        <artifactId>maven-jar-plugin</artifactId>
+        <version>3.2.0</version>
+      </plugin>
+      <plugin>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.0.0</version>
+      </plugin>
+    </plugins>
+  </build>
+</project>
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={DictionaryItem},
+  label={lst:DictionaryItem}
+]
+public class DictionaryItem {
+
+  private static final String IS_DEFAULT = "_is_default";
+  private static final String VALUE = "_value";
+  private static final String PARENT = "_parent";
+  private static final String LABEL = "_label";
+  private static final String ID = "_id";
+
+  private final Map<String, Object> additionalFields;
+
+  public DictionaryItem() {
+    this.additionalFields = new HashMap<>();
+  }
+  
+  public DictionaryItem(Map<String, Object> additionalFields) {
+    this.additionalFields = new HashMap<>(additionalFields);
+  }
+
+  @JsonAnySetter
+  public void setAdditionalField(String key, Object value) {
+    additionalFields.put(key, value);
+  }
+
+  @JsonAnyGetter
+  public Map<String, Object> getAdditionalFields() {
+    return additionalFields;
+  }
+
+  private <T> T getField(String key, Class<T> retType) {
+    Object valueByKey = additionalFields.get(key);
+    if (retType.isInstance(valueByKey)) {
+      return (T) valueByKey;
+    }
+    return null;
+  }
+
+  public Boolean getIsDefault() {
+    return getField(IS_DEFAULT, Boolean.class);
+  }
+
+  public String getValue() {
+    return getField(VALUE, String.class);
+  }
+
+  public String getParent() {
+    return getField(PARENT, String.class);
+  }
+  
+  public String getLabel() {
+    return getField(LABEL, String.class);
+  }
+
+  public String getId() {
+    return getField(ID, String.class);
+  }
+
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={RdmDataProvider},
+  label={lst:RdmDataProvider}
+]
+public interface RdmDataProvider {
+
+  Object getAllVocabularies(UUID rootUuid)
+      throws IOException, InterruptedException;
+      
+  Object getAllVocabularies()
+      throws IOException, InterruptedException;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={DataProviderRdmClient},
+  label={lst:DataProviderRdmClient}
+]
+@Slf4j
+@Service
+public class DataProviderRdmClient {
+
+  private static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(30);
+  private final HttpClient httpClient = HttpClient.newBuilder()
+      .connectTimeout(REQUEST_TIMEOUT)
+      .build();
+
+  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+  @Value("${url}")
+  private String url;
+  @Value("${admin.username}")
+  private String adminUsername;
+  @Value("${admin.password}")
+  private String adminPassword;
+
+  public Map<String, List<DictionaryItem>> getHierarhy()
+      throws IOException, InterruptedException {
+    URI uri = URI.create(url + "/api/v1/");
+    HttpRequest request = HttpRequest.newBuilder(uri)
+        .GET()
+        .timeout(REQUEST_TIMEOUT)
+        .header("Authorization", buildBasicAuthHeader())
+        .header("Accept", "application/json")
+        .build();
+
+    HttpResponse<String> response =
+        httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (isSuccess(response.statusCode())) {
+      String body = response.body();
+      return OBJECT_MAPPER.readValue(body, new TypeReference<>() {});
+    }
+
+    log.error("Unexpected response when requesting vocabularies: status={}, uri={}",
+        response.statusCode(), uri);
+    throw new IllegalStateException("Failed to fetch vocabularies: HTTP " + response.statusCode());
+  }
+
+  private String buildBasicAuthHeader() {
+    return "Basic " + Base64.getEncoder().encodeToString(
+      (adminUsername + ":" + adminPassword).getBytes(StandardCharsets.UTF_8));
+  }
+
+  private boolean isSuccess(int statusCode) {
+    return statusCode >= 200 && statusCode < 300;
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={NuxeoRdmService},
+  label={lst:NuxeoRdmService}
+]
+@Slf4j
+@Service
+public class NuxeoRdmService {
+  @Autowired
+  @Qualifier("Client")
+  private NuxeoClient client;
+
+  public UUID getUuidByDocRef(String docRef) throws Exception {
+    Document answerDocument = client
+        .operation("GetDocument")
+        .input(docRef).execute();
+    if (answerDocument == null) {
+      return null;
+    }
+    String rootUuid = answerDocument.getId();
+    log.info("{} uuid:{}", RdmClientConfig.ROOT_DICTIONARIES_DATA_GROUP, rootUuid);
+    return UUID.fromString(rootUuid);
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={RdmParserServiceStringImpl},
+  label={lst:RdmParserServiceStringImpl}
+]
+@Service
+public class RdmParserServiceStringImpl implements RdmParserService {
+
+  private final ObjectMapper objectMapper = new ObjectMapper();
+
+  @Override
+  public Map<String, List<DictionaryItem>> parseVocabularies(Object payload) {
+    try {
+      String strPayload = String.valueOf(payload);
+      if (strPayload == null || strPayload.isBlank()) {
+        return Map.of();
+      }
+      JsonNode root = objectMapper.readTree(strPayload);
+      Map<String, List<DictionaryItem>> result = new HashMap<>();
+      collectDictionaries(root, result);
+      return result;
+    } catch (JsonProcessingException e) {
+      throw new IllegalStateException("Failed to parse payload", e);
+    }
+  }
+
+  private void collectDictionaries(JsonNode node, Map<String, List<DictionaryItem>> accumulator) {
+    if (node == null) {
+      return;
+    }
+    if (node.isObject()) {
+      node.fields().forEachRemaining(entry -> {
+        String key = entry.getKey();
+        JsonNode value = entry.getValue();
+        if (key.endsWith(RdmClientConfig.RDM_TYPE_SUFFIX) && value.isArray()) {
+          String dictionaryName = key.substring(0, 
+              key.length() - RdmClientConfig.RDM_TYPE_SUFFIX.length());
+          if (!dictionaryName.isBlank()) {
+            for (JsonNode typeNode : value) {
+              JsonNode itemsNode = typeNode.get(dictionaryName);
+              if (itemsNode != null && itemsNode.isArray()) {
+                List<DictionaryItem> items =
+                    accumulator.computeIfAbsent(dictionaryName, unused -> new ArrayList<>());
+                for (JsonNode itemNode : itemsNode) {
+                  items.add(toDictionaryItem(itemNode));
+                }
+              }
+            }
+          }
+        }
+        collectDictionaries(value, accumulator);
+      });
+    } else if (node.isArray()) {
+      for (JsonNode child : node) {
+        collectDictionaries(child, accumulator);
+      }
+    }
+  }
+
+  private DictionaryItem toDictionaryItem(JsonNode itemNode) {
+    Map<String, Object> additionalFields =
+        objectMapper.convertValue(itemNode, new TypeReference<Map<String, Object>>() {});
+
+    return new DictionaryItem(additionalFields);
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={RdmLibService},
+  label={lst:RdmLibService}
+]
+@Slf4j
+@Service
+public class RdmLibService {
+
+  private final RefreshService refreshService;
+
+  private final ConcurrentHashMap<String, CopyOnWriteArrayList<DictionaryItem>> cache = 
+      new ConcurrentHashMap<>();
+  private final CountDownLatch cacheInitLatch = new CountDownLatch(1);
+
+  public RdmLibService(RefreshService refreshService) {
+    this.refreshService = refreshService;
+  }
+
+  public List<DictionaryItem> getDictByDocRef(String docRef) {
+    awaitCacheInit();
+    if (docRef != null && !docRef.isBlank()) {
+      CopyOnWriteArrayList<DictionaryItem> list = cache.get(docRef);
+      return list != null ? new ArrayList<>(list) : null;
+    }
+    log.error("docRef blank");
+    return null;
+  }
+
+  public Map<String, List<DictionaryItem>> getAllDicts() {
+    awaitCacheInit();
+
+    return cache.entrySet().stream()
+        .collect(HashMap::new,
+            (m, e) -> m.put(e.getKey(), new ArrayList<>(e.getValue())),
+            HashMap::putAll);
+  }
+
+  public void put(String dictionaryName, DictionaryItem dictionaryItem) {
+    awaitCacheInit();
+    
+    String id = dictionaryItem.getId();
+    if (id == null) {
+      log.warn("DictionaryItem without _id prop");
+      return;
+    }
+
+    cache.compute(dictionaryName, (key, existingList) -> {
+      CopyOnWriteArrayList<DictionaryItem> list = 
+          existingList != null 
+            ? new CopyOnWriteArrayList<>(existingList) : new CopyOnWriteArrayList<>();
+      
+      boolean found = false;
+      for (int i = 0; i < list.size(); i++) {
+        if (id.equals(list.get(i).getId())) {
+          list.set(i, dictionaryItem);
+          log.info("Update line in {} with id {}", dictionaryName, id);
+          found = true;
+          break;
+        }
+      }
+      
+      if (!found) {
+        list.add(dictionaryItem);
+        log.info("Create new line in {} with id {}", dictionaryName, id);
+      }
+      
+      return list;
+    });
+  }
+
+  public boolean isCacheInitialized() {
+    return cacheInitLatch.getCount() == 0;
+  }
+
+  private void awaitCacheInit() {
+    try {
+      if (!cacheInitLatch.await(10, TimeUnit.MINUTES)) {
+        log.error("Cache initialization timeout");
+        throw new IllegalStateException("Cache not initialized within timeout");
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Interrupted while waiting for cache init", e);
+    }
+  }
+
+  public boolean refreshCache() {
+    try {
+      log.info("{}:{}", RdmClientConfig.LIB_NAME,
+          getClass().getPackage().getImplementationVersion());
+          
+      Map<String, List<DictionaryItem>> vocabularies = refreshService.refresh();
+      
+      cache.clear();
+      vocabularies.forEach((key, items) -> 
+          cache.put(key, new CopyOnWriteArrayList<>(items)));
+      
+      log.info("Vocabularies upload size: {}", vocabularies.size());
+      cacheInitLatch.countDown();
+      return true;
+    } catch (Exception e) {
+      log.error("refreshCache failed", e);
+      return false;
+    }
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={RdmRefreshEvent},
+  label={lst:RdmRefreshEvent}
+]
+@AllArgsConstructor
+@Getter
+public class RdmRefreshEvent {
+  private final String message;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={RefreshEventListener},
+  label={lst:RefreshEventListener}
+]
+@Component
+@RequiredArgsConstructor
+@Slf4j
+@EnableAsync
+public class RefreshEventListener {
+
+  private final RdmLibService rdmLibService;
+
+  @Async
+  @EventListener
+  public void onApplicationEvent(RdmRefreshEvent event) {
+    log.info("Refresh event: {}", event.getMessage());
+    while (true) {
+      Boolean result = rdmLibService.refreshCache();
+      if (Boolean.TRUE.equals(result)) {
+        log.info("Init success");
+        break;
+      } else {
+        log.warn("Init fail (retry after 1 minute)");
+      }
+      try {
+        Thread.sleep(RdmClientConfig.DELAY_BETWEEN_ATTEMPTS);
+      } catch (InterruptedException ie) {
+        Thread.currentThread().interrupt();
+        log.error("Thread interrupted during sleep: {}", ie.getMessage());
+        break;
+      }
+    }
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={NuxeoRdmConfig},
+  label={lst:NuxeoRdmConfig}
+]
+@Configuration
+public class NuxeoRdmConfig {
+
+  @Value("${username}")
+  private String nuxeoAdminUsername;
+  @Value("${password}")
+  private String nuxeoAdminPassword;
+  @Value("${url}")
+  private String nuxeoUrl;
+  
+
+  @Bean("Client")
+  public NuxeoClient nuxeoRdmClient() {
+    return new NuxeoClient.Builder()
+        .url(nuxeoUrl)
+        .authentication(nuxeoAdminUsername, nuxeoAdminPassword)
+        .schemas("*")
+        .connect();
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={RdmLibServiceTest},
+  label={lst:RdmLibServiceTest}
+]
+@ExtendWith(MockitoExtension.class)
+class RdmLibServiceTest {
+
+  @Mock
+  private RefreshService refreshService;
+
+  private RdmLibService service;
+
+  @BeforeEach
+  void setUp() {
+    service = new RdmLibService(refreshService);
+  }
+
+  @Test
+  void shouldParseMinimalDictionaryStructure() throws IOException {
+    Map<String, List<DictionaryItem>> result = parsePayload("single_dictionary.json");
+
+    List<DictionaryItem> items = result.get("MinimalDict");
+    assertNotNull(items, "Minimal dictionary should be parsed");
+    assertEquals(1, items.size(), "Expected single entry");
+
+    DictionaryItem item = items.get(0);
+    assertEquals(Boolean.TRUE, item.getIsDefault());
+    assertEquals("value1", item.getValue());
+    assertEquals("parent1", item.getParent());
+    assertEquals("Bar", item.getAdditionalFields().get("Foo"));
+    assertTrue(item.getAdditionalFields().containsKey("_value"));
+  }
+
+  @Test
+  void shouldParseNullDictionaryStructure() throws IOException {
+    Map<String, List<DictionaryItem>> result = parsePayload("null_dictionary.json");
+
+    List<DictionaryItem> items = result.get("NullDict");
+    assertNotNull(items, "Minimal dictionary should be parsed");
+    assertEquals(1, items.size(), "Expected single entry");
+
+    assertFalse(result.containsKey("_rdm_type"), "Expected to ignore empty postfix key");
+    assertFalse(result.containsKey(""), "Expected to ignore empty key");
+    assertFalse(result.containsKey("second_rdm_type"), "Expected to ignore unrelated key");
+
+    DictionaryItem item = items.get(0);
+    assertEquals(null, item.getIsDefault());
+    assertEquals(null, item.getValue());
+    assertEquals(null, item.getParent());
+    assertEquals("Bar", item.getAdditionalFields().get("Foo"));
+    assertTrue(item.getAdditionalFields().containsKey("_value"));
+  }
+
+  @Test
+  void initShouldFetchVocabularies() throws Exception {
+    Map<String, List<DictionaryItem>> parsedData = parsePayload("single_dictionary.json");
+
+    when(refreshService.refresh()).thenReturn(parsedData);
+
+    boolean success = service.refreshCache();
+
+    assertTrue(success, "Service should complete initialization");
+    verify(refreshService).refresh();
+
+    List<DictionaryItem> cachedDictionary = service.getDictByDocRef("MinimalDict");
+    assertNotNull(cachedDictionary, "Cached dictionary should be present");
+    assertFalse(cachedDictionary.isEmpty(), "Cached dictionary should not be empty");
+  }
+
+  private Map<String, List<DictionaryItem>> parsePayload(String resourceName)
+      throws IOException {
+    RdmParserService parserService = new RdmParserServiceStringImpl();
+    return parserService.parseVocabularies(readPayload(resourceName));
+  }
+
+  private String readPayload(String resourceName) throws IOException {
+    ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+    try (InputStream inputStream = classLoader.getResourceAsStream(resourceName)) {
+      if (inputStream == null) {
+        throw new IOException(resourceName + " resource not found");
+      }
+      byte[] bytes = inputStream.readAllBytes();
+      return new String(bytes, StandardCharsets.UTF_8);
+    }
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={null dictionary},
+  label={lst:null dictionary}
+]
+{
+  "NullDict_rdm_type": [
+    {
+      "NullDict": [
+        {
+          "_value": null,
+          "_parent": null,
+          "Foo": "Bar"
+        }
+      ],
+      "": [],
+      "_rdm_type": [
+        {
+          "_value": null,
+          "_parent": null,
+          "Foo": "Bar"
+        }
+      ],
+      "second_rdm_type": "ffffffff",
+      "tr_rdm_type": [
+        null
+      ],
+      "for_rdm_type": [
+        "sadasdasdasd"
+      ]
+    }
+  ]
+}
+\end{lstlisting}
+
+\begin{lstlisting}[
+  caption={single dictionary},
+  label={lst:single dictionary}
+]
+{
+  "MinimalDict_rdm_type": [
+    {
+      "MinimalDict": [
+        {
+          "_is_default": true,
+          "_value": "value1",
+          "_parent": "parent1",
+          "Foo": "Bar"
+        }
+      ]
+    }
+  ]
+}
+\end{lstlisting}

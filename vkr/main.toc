@@ -1,0 +1,60 @@
+\xpg@aux {}{russian}
+\contentsline {section}{\MakeUppercase []{ВВЕДЕНИЕ}}{4}{section*.2}%
+\contentsline {section}{\numberline {1}ОСНОВНАЯ ЧАСТЬ}{9}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Утилита для сбора логов по camunda events}{9}{subsection.1.1}%
+\contentsline {subsubsection}{\numberline {1.1.1}Задача}{9}{subsubsection.1.1.1}%
+\contentsline {subsubsection}{\numberline {1.1.2}Аналитика задачи}{9}{subsubsection.1.1.2}%
+\contentsline {subsubsection}{\numberline {1.1.3}Заведение задачи в системе трекинга}{10}{subsubsection.1.1.3}%
+\contentsline {subsubsection}{\numberline {1.1.4}Исследование текущего интерфейса системы бизнес процессов}{10}{subsubsection.1.1.4}%
+\contentsline {subsubsection}{\numberline {1.1.5}Контроллер}{12}{subsubsection.1.1.5}%
+\contentsline {subsubsection}{\numberline {1.1.6}Сервис}{13}{subsubsection.1.1.6}%
+\contentsline {subsubsection}{\numberline {1.1.7}Затронутое API}{14}{subsubsection.1.1.7}%
+\contentsline {subsubsection}{\numberline {1.1.8}Допустимые ошибки}{15}{subsubsection.1.1.8}%
+\contentsline {subsubsection}{\numberline {1.1.9}Замер потребления ресурсов при нагрузке}{15}{subsubsection.1.1.9}%
+\contentsline {subsubsection}{\numberline {1.1.10}Использованные технологии}{17}{subsubsection.1.1.10}%
+\contentsline {subsubsection}{\numberline {1.1.11}Почему были выбраны технологии}{17}{subsubsection.1.1.11}%
+\contentsline {subsubsection}{\numberline {1.1.12}Вывод}{18}{subsubsection.1.1.12}%
+\contentsline {subsection}{\numberline {1.2}Дописывание получения движений токена по workflow}{18}{subsection.1.2}%
+\contentsline {subsubsection}{\numberline {1.2.1}Задача}{18}{subsubsection.1.2.1}%
+\contentsline {subsubsection}{\numberline {1.2.2}Аналитика задачи}{18}{subsubsection.1.2.2}%
+\contentsline {subsubsection}{\numberline {1.2.3}Исследование точек внедрения}{19}{subsubsection.1.2.3}%
+\contentsline {subsubsection}{\numberline {1.2.4}Handler}{20}{subsubsection.1.2.4}%
+\contentsline {subsubsection}{\numberline {1.2.5}Сервисы для обработки событий на уровне плагина}{21}{subsubsection.1.2.5}%
+\contentsline {subsubsection}{\numberline {1.2.6}Затронутое API}{24}{subsubsection.1.2.6}%
+\contentsline {subsubsection}{\numberline {1.2.7}Дописывание API}{25}{subsubsection.1.2.7}%
+\contentsline {subsubsection}{\numberline {1.2.8}Результаты сообщений из брокера}{26}{subsubsection.1.2.8}%
+\contentsline {subsubsection}{\numberline {1.2.9}Проверка корректного восстановления}{27}{subsubsection.1.2.9}%
+\contentsline {subsubsection}{\numberline {1.2.10}Вывод}{30}{subsubsection.1.2.10}%
+\contentsline {subsection}{\numberline {1.3}Настройка движка Camunda под нагрузку}{30}{subsection.1.3}%
+\contentsline {subsubsection}{\numberline {1.3.1}Задача}{30}{subsubsection.1.3.1}%
+\contentsline {subsubsection}{\numberline {1.3.2}Аналитика задачи}{30}{subsubsection.1.3.2}%
+\contentsline {subsubsection}{\numberline {1.3.3}Написание конфигурации Job Executor}{31}{subsubsection.1.3.3}%
+\contentsline {subsubsection}{\numberline {1.3.4}Настройка параметров длительного опроса}{32}{subsubsection.1.3.4}%
+\contentsline {subsubsection}{\numberline {1.3.5}Отключение уровня хранения истории}{32}{subsubsection.1.3.5}%
+\contentsline {subsubsection}{\numberline {1.3.6}Конфигурационные файлы}{32}{subsubsection.1.3.6}%
+\contentsline {subsubsection}{\numberline {1.3.7}Проверка быстрой асинхронной работы job executors}{33}{subsubsection.1.3.7}%
+\contentsline {subsubsection}{\numberline {1.3.8}Проверка отсутствия истории в слое персистенции при движении по схеме}{33}{subsubsection.1.3.8}%
+\contentsline {subsubsection}{\numberline {1.3.9}Вывод}{33}{subsubsection.1.3.9}%
+\contentsline {subsection}{\numberline {1.4}Написание кеша для метаданных}{33}{subsection.1.4}%
+\contentsline {subsubsection}{\numberline {1.4.1}Задача}{33}{subsubsection.1.4.1}%
+\contentsline {subsubsection}{\numberline {1.4.2}Аналитика задачи}{34}{subsubsection.1.4.2}%
+\contentsline {subsubsection}{\numberline {1.4.3}Реализация решения}{34}{subsubsection.1.4.3}%
+\contentsline {subsubsection}{\numberline {1.4.4}Модель данных}{35}{subsubsection.1.4.4}%
+\contentsline {subsubsection}{\numberline {1.4.5}Слой получения данных}{35}{subsubsection.1.4.5}%
+\contentsline {subsubsection}{\numberline {1.4.6}Парсинг иерархии справочников}{35}{subsubsection.1.4.6}%
+\contentsline {subsubsection}{\numberline {1.4.7}Кеш и инициализация}{36}{subsubsection.1.4.7}%
+\contentsline {subsubsection}{\numberline {1.4.8}Асинхронная инициализация и повторные попытки}{36}{subsubsection.1.4.8}%
+\contentsline {subsubsection}{\numberline {1.4.9}Конфигурация}{37}{subsubsection.1.4.9}%
+\contentsline {subsubsection}{\numberline {1.4.10}Тестирование}{37}{subsubsection.1.4.10}%
+\contentsline {subsubsection}{\numberline {1.4.11}Интеграция решения}{37}{subsubsection.1.4.11}%
+\contentsline {subsubsection}{\numberline {1.4.12}Заполенения кеша}{38}{subsubsection.1.4.12}%
+\contentsline {subsubsection}{\numberline {1.4.13}Чтения из кеша}{38}{subsubsection.1.4.13}%
+\contentsline {subsubsection}{\numberline {1.4.14}Инвалидации кеша}{39}{subsubsection.1.4.14}%
+\contentsline {subsubsection}{\numberline {1.4.15}Снижения обращений в базу}{39}{subsubsection.1.4.15}%
+\contentsline {subsubsection}{\numberline {1.4.16}Вывод}{39}{subsubsection.1.4.16}%
+\contentsline {section}{\MakeUppercase []{ЗАКЛЮЧЕНИЕ}}{40}{section*.12}%
+\contentsline {section}{\MakeUppercase []{СПИСОК ИСПОЛЬЗОВАННЫХ ИСТОЧНИКОВ}}{41}{section*.13}%
+\contentsline {section}{ПРИЛОЖЕНИЕ~А (Система сбора истории камунды)}{42}{section*.14}%
+\contentsline {section}{ПРИЛОЖЕНИЕ~Б (Дописывание получения движений токена по workflow)}{49}{section*.15}%
+\contentsline {section}{ПРИЛОЖЕНИЕ~В (Конфигурация движка Camunda под нагрузку)}{66}{section*.16}%
+\contentsline {section}{ПРИЛОЖЕНИЕ~Г (Написание кеша для метаданных)}{68}{section*.17}%

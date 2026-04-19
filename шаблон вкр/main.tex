@@ -1,0 +1,27 @@
+\documentclass[a4paper,14pt]{extarticle}
+
+\makeatletter
+\IfFileExists{vkr.sty}{}{
+  \expandafter\def\expandafter\input@path\expandafter{{шаблон вкр/}}
+}
+\makeatother
+\usepackage{vkr}
+
+\begin{document}
+
+\customtableofcontents
+
+\input{sections/00-abbreviations.tex}
+\input{sections/00-terms.tex}
+
+\input{sections/01-introduction.tex}
+\input{sections/02-chapter1.tex}
+\input{sections/03-chapter2.tex}
+\input{sections/04-conclusion.tex}
+
+\input{sections/05-bibliography.tex}
+
+\CUSTOMappendixsetup
+\input{sections/appendix-a.tex}
+
+\end{document}

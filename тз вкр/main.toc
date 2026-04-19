@@ -1,0 +1,21 @@
+\xpg@aux {}{russian}
+\contentsline {section}{\numberline {1}ТЕХНИЧЕСКОЕ ЗАДАНИЕ}{2}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Наименование}{2}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}Назначение}{2}{subsection.1.2}%
+\contentsline {subsection}{\numberline {1.3}Основание для разработки}{3}{subsection.1.3}%
+\contentsline {subsection}{\numberline {1.4}Функции}{4}{subsection.1.4}%
+\contentsline {subsection}{\numberline {1.5}Структура}{5}{subsection.1.5}%
+\contentsline {subsubsection}{\numberline {1.5.1}RAG-service}{5}{subsubsection.1.5.1}%
+\contentsline {subsubsection}{\numberline {1.5.2}lang-service}{5}{subsubsection.1.5.2}%
+\contentsline {subsubsection}{\numberline {1.5.3}models store}{6}{subsubsection.1.5.3}%
+\contentsline {subsubsection}{\numberline {1.5.4}Minio}{6}{subsubsection.1.5.4}%
+\contentsline {subsubsection}{\numberline {1.5.5}ChromaDB}{6}{subsubsection.1.5.5}%
+\contentsline {subsection}{\numberline {1.6}Пользовательский интерфейс}{6}{subsection.1.6}%
+\contentsline {subsection}{\numberline {1.7}Нефункциональные требования}{7}{subsection.1.7}%
+\contentsline {subsubsection}{\numberline {1.7.1}Надежность}{7}{subsubsection.1.7.1}%
+\contentsline {subsubsection}{\numberline {1.7.2}Безопасность}{7}{subsubsection.1.7.2}%
+\contentsline {subsubsection}{\numberline {1.7.3}Условия эксплуатации}{8}{subsubsection.1.7.3}%
+\contentsline {subsubsection}{\numberline {1.7.4}Прочие требования}{8}{subsubsection.1.7.4}%
+\contentsline {subsection}{\numberline {1.8}Документация}{8}{subsection.1.8}%
+\contentsline {subsection}{\numberline {1.9}Стадии и этапы разработки}{9}{subsection.1.9}%
+\contentsline {subsection}{\numberline {1.10}Порядок контроля и приемка}{10}{subsection.1.10}%

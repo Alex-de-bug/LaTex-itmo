@@ -1,0 +1,38 @@
+\documentclass[a4paper,14pt]{extarticle}
+
+\makeatletter
+\IfFileExists{vkr.sty}{}{
+  \expandafter\def\expandafter\input@path\expandafter{{шаблон вкр/}}
+}
+\makeatother
+\usepackage{vkr}
+\usepackage{pdfpages}
+
+\begin{document}
+
+\includepdf[pages=1,pagecommand={\thispagestyle{empty}}]{artifacts/titulni.pdf}
+\setcounter{page}{2}
+
+\customtableofcontents
+
+% \input{sections/00-abbreviations.tex}
+% \input{sections/00-terms.tex}
+
+\input{sections/01-introduction.tex}
+\input{sections/02-chapter1.tex}
+\input{sections/02-chapter2.tex}
+\input{sections/02-chapter3.tex}
+\input{sections/02-chapter4.tex}
+% \input{sections/03-chapter2.tex}
+\input{sections/04-conclusion.tex}
+
+\input{sections/05-bibliography.tex}
+
+\CUSTOMappendixsetup
+% \input{sections/appendix-a.tex}
+\input{sections/appendix-a.tex}
+\input{sections/appendix-b.tex}
+\input{sections/appendix-c.tex}
+\input{sections/appendix-g.tex}
+
+\end{document}
